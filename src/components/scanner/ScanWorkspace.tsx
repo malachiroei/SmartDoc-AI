@@ -18,6 +18,7 @@ import {
   warpPerspective,
 } from "@/lib/image/perspective";
 import { applyFilter } from "@/lib/image/filters";
+import { isPdfFile, pdfFileToImageDataUrls } from "@/lib/image/pdf";
 import { CameraViewfinder } from "./CameraViewfinder";
 import { PerspectiveEditor } from "./PerspectiveEditor";
 import { FilterSelector } from "./FilterSelector";
@@ -81,15 +82,57 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
   };
 
   const handleFileUpload = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
+    setBusy(true);
+    try {
+      if (isPdfFile(file)) {
+        const pageUrls = await pdfFileToImageDataUrls(file);
+        if (pageUrls.length === 0) {
+          throw new Error("PDF has no pages");
+        }
+
+        // Convert every PDF page into a scan session page (JPEG data URLs)
+        // so AI classify + routing receive image payloads seamlessly.
+        const newPages: ScannedPage[] = [];
+        for (const dataUrl of pageUrls) {
+          const img = await loadImage(dataUrl);
+          const corners = defaultQuad(img.naturalWidth, img.naturalHeight, 0.02);
+          const processed = await processPage(dataUrl, corners, filter);
+          newPages.push({
+            id: nanoid(),
+            originalDataUrl: dataUrl,
+            processedDataUrl: processed,
+            filter,
+            corners,
+            createdAt: Date.now(),
+          });
+        }
+
+        setPages((prev) => [...prev, ...newPages]);
+        setActiveId(newPages[0].id);
+        setFormat("pdf");
+        setMode("camera");
+        return;
+      }
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+
       const img = await loadImage(dataUrl);
       setDraftOriginal(dataUrl);
       setDraftCorners(defaultQuad(img.naturalWidth, img.naturalHeight, 0.06));
       setMode("review");
-    };
-    reader.readAsDataURL(file);
+    } catch (e) {
+      console.error(e);
+      window.alert(
+        e instanceof Error ? e.message : "Could not open that file"
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const confirmPage = async () => {
@@ -158,17 +201,24 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
         <>
           <CameraViewfinder onCapture={handleCapture} />
           <div className="flex items-center justify-between gap-3">
-            <label className="inline-flex items-center gap-2 text-sm text-[var(--fg-muted)] cursor-pointer hover:text-[var(--fg)]">
+            <label
+              className={`inline-flex items-center gap-2 text-sm cursor-pointer ${
+                busy
+                  ? "text-[var(--fg-muted)] opacity-60 pointer-events-none"
+                  : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              }`}
+            >
               <Upload className="h-4 w-4" />
-              Upload image
+              {busy ? "Processing…" : "Upload Image / PDF"}
               <input
                 type="file"
-                accept="image/*"
-                capture="environment"
+                accept="image/*,application/pdf,.pdf"
                 className="hidden"
+                disabled={busy}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) handleFileUpload(f);
+                  e.target.value = "";
+                  if (f) void handleFileUpload(f);
                 }}
               />
             </label>
