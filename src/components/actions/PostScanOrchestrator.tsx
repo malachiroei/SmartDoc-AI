@@ -17,6 +17,7 @@ import {
   uploadPagesToDrive,
   upsertRoutingRule,
 } from "@/lib/drive/actions";
+import { fetchJsonOk } from "@/lib/api/client-fetch";
 import { he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -77,15 +78,15 @@ export function PostScanOrchestrator({
 
       try {
         const imageBase64 = pages[0].processedDataUrl;
-        const classifyRes = await fetch("/api/ai/classify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64 }),
-        });
-        const classifyData = await classifyRes.json();
-        if (!classifyRes.ok) {
-          throw new Error(classifyData.error ?? he.classify.failed);
-        }
+        const classifyData = await fetchJsonOk<ClassificationResult & { error?: string }>(
+          "/api/ai/classify",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64 }),
+            networkError: he.classify.failed,
+          }
+        );
         if (cancelled) return;
 
         const result: ClassificationResult = {
@@ -100,15 +101,11 @@ export function PostScanOrchestrator({
         // Memory lookup — failures must NOT skip the Smart Routing dialog
         let found: RoutingRule | null = null;
         try {
-          const lookupRes = await fetch(
-            `/api/rules/lookup?vendor=${encodeURIComponent(result.vendor)}`
+          const lookupData = await fetchJsonOk<{ rule: RoutingRule | null }>(
+            `/api/rules/lookup?vendor=${encodeURIComponent(result.vendor)}`,
+            { networkError: he.classify.lookupFailed }
           );
-          const lookupData = await lookupRes.json();
-          if (lookupRes.ok) {
-            found = lookupData.rule ?? null;
-          } else {
-            console.warn("[rules/lookup]", lookupData.error);
-          }
+          found = lookupData.rule ?? null;
         } catch (lookupErr) {
           console.warn("[rules/lookup]", lookupErr);
         }
@@ -158,18 +155,27 @@ export function PostScanOrchestrator({
   const afterSuccessfulFile = async (folder: {
     id: string;
     name: string;
-  }) => {
-    if (!classification) return;
-    const upsert = await upsertRoutingRule({
-      vendor_or_doc_type: classification.vendor,
-      target_folder_id: folder.id,
-      target_folder_name: folder.name,
-    });
+  }): Promise<boolean> => {
+    if (!classification) return true;
+    try {
+      const upsert = await upsertRoutingRule({
+        vendor_or_doc_type: classification.vendor,
+        target_folder_id: folder.id,
+        target_folder_name: folder.name,
+      });
 
-    if (upsert.learned || upsert.confirmation_count >= 3) {
-      toast(he.toasts.learned(classification.vendor), "celebrate");
-    } else {
-      toast(he.toasts.successCount(upsert.confirmation_count), "success");
+      if (upsert.learned || upsert.confirmation_count >= 3) {
+        toast(he.toasts.learned(classification.vendor), "celebrate");
+      } else {
+        toast(he.toasts.successCount(upsert.confirmation_count), "success");
+      }
+      return true;
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : he.toasts.ruleSaveFailed,
+        "default"
+      );
+      return false;
     }
   };
 

@@ -1,21 +1,40 @@
 import { NextResponse } from "next/server";
 import { classifyDocument } from "@/lib/ai/classify";
+import { checkSupabaseEnv } from "@/lib/supabase/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
  * POST /api/ai/classify
- * Body: { imageBase64: string }  // data URL or raw base64 of scanned page/PDF preview
+ * Body: { imageBase64: string }
  */
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    // Log Supabase config status (classify does not query DB, but ops teams expect it here)
+    const env = checkSupabaseEnv();
+    if (!env.ok) {
+      console.warn(
+        "[ai/classify] Supabase env missing (classification still runs):",
+        env.missing.join(", ")
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "גוף הבקשה אינו JSON תקין" },
+        { status: 400 }
+      );
+    }
+
     const imageBase64 = body.imageBase64 as string | undefined;
 
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return NextResponse.json(
-        { error: "imageBase64 is required" },
+        { error: "נדרש שדה imageBase64" },
         { status: 400 }
       );
     }
@@ -33,9 +52,8 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     console.error("[ai/classify]", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Classification failed" },
-      { status: 500 }
-    );
+    const message =
+      e instanceof Error ? e.message : "הסיווג נכשל";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

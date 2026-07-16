@@ -1,5 +1,7 @@
 import type { ExportFormat, ScannedPage } from "@/lib/types";
 import { exportPages } from "@/lib/image/export";
+import { fetchJsonOk } from "@/lib/api/client-fetch";
+import { he } from "@/lib/i18n/he";
 
 export async function uploadPagesToDrive(opts: {
   pages: ScannedPage[];
@@ -19,21 +21,22 @@ export async function uploadPagesToDrive(opts: {
   form.append("fileName", filename);
   form.append("mimeType", mimeType);
 
-  const res = await fetch("/api/drive/upload", { method: "POST", body: form });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Upload failed");
-  return data;
+  return fetchJsonOk<{ id: string; name: string; demo?: boolean }>(
+    "/api/drive/upload",
+    { method: "POST", body: form, networkError: he.actions.uploadFailed }
+  );
 }
 
 export async function createDriveFolder(name: string, parentId = "root") {
-  const res = await fetch("/api/drive/create-folder", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, parentId }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Create folder failed");
-  return data as { id: string; name: string; path?: string; demo?: boolean };
+  return fetchJsonOk<{ id: string; name: string; path?: string; demo?: boolean }>(
+    "/api/drive/create-folder",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, parentId }),
+      networkError: he.toasts.filingFailed,
+    }
+  );
 }
 
 export async function upsertRoutingRule(opts: {
@@ -41,18 +44,16 @@ export async function upsertRoutingRule(opts: {
   target_folder_id: string;
   target_folder_name: string;
 }) {
-  const res = await fetch("/api/rules/upsert", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(opts),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Rule upsert failed");
-  return data as {
+  return fetchJsonOk<{
     rule: unknown;
     learned: boolean;
     confirmation_count: number;
-  };
+  }>("/api/rules/upsert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+    networkError: he.toasts.ruleSaveFailed,
+  });
 }
 
 export function makeScanFileBase() {

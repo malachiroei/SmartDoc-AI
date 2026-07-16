@@ -76,6 +76,15 @@ export const he = {
     learned: (vendor: string) =>
       `🎉 הכלל נלמד! מעכשיו מסמכי ${vendor} יתוייקו לשם באופן אוטומטי`,
     filingFailed: "התיוק נכשל",
+    ruleSaveFailed: "שמירת כלל התיוק נכשלה",
+  },
+  errors: {
+    network: "שגיאת רשת — לא ניתן להגיע לשרת. בדקו שהאפליקציה פועלת ונסו שוב.",
+    serverError: "שגיאת שרת",
+    badResponse: "תשובה לא תקינה מהשרת",
+    invalidApiPath: "נתיב API לא תקין",
+    supabaseConfig:
+      "Supabase לא מוגדר. הוסיפו NEXT_PUBLIC_SUPABASE_URL ו-NEXT_PUBLIC_SUPABASE_ANON_KEY ל-.env.local",
   },
   actions: {
     scanReady: "הסריקה מוכנה",
