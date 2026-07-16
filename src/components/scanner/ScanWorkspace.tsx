@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { nanoid } from "nanoid";
 import {
   Check,
@@ -22,11 +23,24 @@ import { applyFilter } from "@/lib/image/filters";
 import { isPdfFile, pdfFileToImageDataUrls } from "@/lib/image/pdf";
 import { he } from "@/lib/i18n/he";
 import { cn } from "@/lib/utils";
-import { CameraViewfinder } from "./CameraViewfinder";
 import { PerspectiveEditor } from "./PerspectiveEditor";
 import { FilterSelector } from "./FilterSelector";
 import { PageThumbnails } from "./PageThumbnails";
 import { Button } from "@/components/ui/Button";
+
+/** Camera uses navigator.mediaDevices — never SSR */
+const CameraViewfinder = dynamic(
+  () =>
+    import("./CameraViewfinder").then((m) => m.CameraViewfinder),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-10 text-center text-sm text-[var(--fg-muted)] animate-pulse">
+        {he.camera.starting}
+      </div>
+    ),
+  }
+);
 
 type Mode = "camera" | "review";
 export type ScanKind = "document" | "personal";
@@ -288,34 +302,38 @@ export function ScanWorkspace({
       {mode === "camera" && (
         <>
           <CameraViewfinder onCapture={handleCapture} />
-          <div className="flex items-center justify-between gap-3">
-            <label
-              className={`inline-flex items-center gap-2 text-sm cursor-pointer ${
-                busy
-                  ? "text-[var(--fg-muted)] opacity-60 pointer-events-none"
-                  : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
-              }`}
-            >
-              <Upload className="h-4 w-4" />
+
+          {/* Always visible — even when camera permission fails */}
+          <label
+            className={cn(
+              "flex flex-col sm:flex-row items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-teal-400/40 bg-teal-400/5 px-4 py-5 cursor-pointer transition-colors hover:border-teal-400/70 hover:bg-teal-400/10",
+              busy && "opacity-60 pointer-events-none"
+            )}
+          >
+            <Upload className="h-5 w-5 text-teal-300" />
+            <span className="text-sm font-medium text-teal-100">
               {busy ? he.scanner.processing : he.scanner.upload}
-              <input
-                type="file"
-                accept="image/*,application/pdf,.pdf"
-                className="hidden"
-                disabled={busy}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = "";
-                  if (f) void handleFileUpload(f);
-                }}
-              />
-            </label>
-            {onCancel && (
+            </span>
+            <input
+              type="file"
+              accept="image/*,application/pdf,.pdf"
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void handleFileUpload(f);
+              }}
+            />
+          </label>
+
+          {onCancel && (
+            <div className="flex justify-start">
               <Button variant="ghost" size="sm" onClick={onCancel}>
                 <X className="h-4 w-4" /> {he.scanner.cancel}
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
 

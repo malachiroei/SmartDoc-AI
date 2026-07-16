@@ -12,6 +12,10 @@ type Props = {
   className?: string;
 };
 
+/**
+ * Camera is browser-only. Parent should load this with dynamic(..., { ssr: false })
+ * or only after a client `mounted` gate to avoid hydration mismatches.
+ */
 export function CameraViewfinder({
   onCapture,
   edgeDetection = true,
@@ -42,6 +46,11 @@ export function CameraViewfinder({
     setError(null);
     setReady(false);
 
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError(he.camera.denied);
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -58,14 +67,12 @@ export function CameraViewfinder({
       await video.play();
       setReady(true);
     } catch {
-      setError(
-        he.camera.denied
-      );
+      setError(he.camera.denied);
     }
   }, [facingMode, stopStream]);
 
   useEffect(() => {
-    startCamera();
+    void startCamera();
     return stopStream;
   }, [startCamera, stopStream]);
 
@@ -160,6 +167,31 @@ export function CameraViewfinder({
   const flip = () =>
     setFacingMode((m) => (m === "environment" ? "user" : "environment"));
 
+  // Compact error card — does NOT dominate the page; upload/toggle stay visible outside
+  if (error) {
+    return (
+      <div
+        className={cn(
+          "rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-6 text-center space-y-3",
+          className
+        )}
+        dir="rtl"
+      >
+        <p className="text-sm text-[var(--fg-muted)] leading-relaxed">{error}</p>
+        <p className="text-xs text-[var(--fg-muted)]">
+          אפשר להמשיך עם העלאת קובץ למטה — המצלמה אינה חובה.
+        </p>
+        <button
+          type="button"
+          onClick={() => void startCamera()}
+          className="text-sm text-teal-300 underline underline-offset-4"
+        >
+          {he.camera.retry}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -179,21 +211,9 @@ export function CameraViewfinder({
       />
       <canvas ref={canvasRef} className="hidden" />
 
-      {!ready && !error && (
+      {!ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--ink)] text-[var(--fg-muted)] text-sm">
           {he.camera.starting}
-        </div>
-      )}
-
-      {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--ink)] px-6 text-center">
-          <p className="text-sm text-[var(--fg-muted)]">{error}</p>
-          <button
-            onClick={startCamera}
-            className="text-sm text-[var(--accent)] underline underline-offset-4"
-          >
-            {he.camera.retry}
-          </button>
         </div>
       )}
 
