@@ -3,7 +3,7 @@ import type { DocType } from "@/lib/types";
 /** Hebrew UI copy for SmartDoc */
 export const he = {
   appName: "SmartDoc",
-  phase: "שלב 4",
+  phase: "שלב 4 · כספת וסוכן AI",
   home: {
     badge: "זיהוי AI · למידת 3 אישורים",
     title: "סרקו. למדו. תייקו לבד.",
