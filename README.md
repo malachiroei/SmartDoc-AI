@@ -56,7 +56,17 @@ src/
     storage/            # Recent contacts / last Drive folder
 ```
 
+## Phase 2 — AI Vision & 3-Strike Learning
+
+- `POST /api/ai/classify` — Vision LLM → JSON classification (OpenAI / Gemini / Anthropic)
+- `GET /api/rules/lookup` — Supabase memory lookup by vendor
+- `POST /api/rules/upsert` — Increment confirmation_count; at 3 → `is_autonomous`
+- Smart Routing Dialog after scan (reuse / create / manual)
+- Autonomous Drive upload when `is_autonomous === true` + toast
+
+Requires `NEXT_PUBLIC_SUPABASE_*` and at least one of `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY`.
+
 ## Next phases (planned)
 
-- **Phase 2:** AI OCR / classification, Gmail ingestion, filing rules
-- **Phase 3:** 3-Strike autonomous learning + bill management
+- Gmail ingestion & Bill Alerts
+- Broader autonomous filing UI

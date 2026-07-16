@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ScanLine, Sparkles, HardDrive, Mail } from "lucide-react";
+import { ScanLine, Sparkles, Brain, HardDrive } from "lucide-react";
 import type { ExportFormat, ScannedPage } from "@/lib/types";
 import { ScanWorkspace } from "@/components/scanner/ScanWorkspace";
-import { PostScanModal } from "@/components/actions/PostScanModal";
+import { PostScanOrchestrator } from "@/components/actions/PostScanOrchestrator";
 import { Button } from "@/components/ui/Button";
 
 export default function HomePage() {
@@ -34,7 +34,7 @@ export default function HomePage() {
             </span>
           </Link>
           <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-muted)] font-[family-name:var(--font-mono)]">
-            Phase 1
+            Phase 2
           </span>
         </div>
       </header>
@@ -56,15 +56,15 @@ export default function HomePage() {
               <div className="relative">
                 <p className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/10 px-3 py-1 text-xs text-teal-200 mb-5">
                   <Sparkles className="h-3.5 w-3.5" />
-                  CamScanner-quality · Drive & Email
+                  AI Vision · 3-Strike Learning
                 </p>
                 <h1 className="font-[family-name:var(--font-display)] text-4xl sm:text-5xl tracking-tight text-[var(--fg)] max-w-lg leading-[1.1]">
-                  Scan. Enhance. File in one tap.
+                  Scan. Learn. File itself.
                 </h1>
                 <p className="mt-4 max-w-md text-[var(--fg-muted)] leading-relaxed">
-                  Real-time edge detection, perspective correction, Magic Color
-                  filters, and multi-page PDF — then save to Google Drive or
-                  email instantly.
+                  After each scan, AI classifies the document. Confirm a folder
+                  three times and SmartDoc files that vendor automatically
+                  forever after.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Button size="lg" onClick={() => setScanning(true)}>
@@ -78,19 +78,19 @@ export default function HomePage() {
             <div className="mt-8 grid sm:grid-cols-3 gap-3">
               {[
                 {
-                  icon: ScanLine,
-                  title: "Edge-aware capture",
-                  body: "Live document boundaries with drag-to-adjust corners.",
+                  icon: Brain,
+                  title: "AI classification",
+                  body: "GPT-4o / Gemini / Claude extract vendor, type & folder hint.",
                 },
                 {
                   icon: HardDrive,
-                  title: "Google Drive",
-                  body: "Quick folder picker defaults to last-used location.",
+                  title: "Smart routing",
+                  body: "Reuse, create, or manually pick — each confirm trains memory.",
                 },
                 {
-                  icon: Mail,
-                  title: "Send via email",
-                  body: "Autocomplete from recent recipients and contacts.",
+                  icon: Sparkles,
+                  title: "3-Strike autonomy",
+                  body: "On the third confirmation, filing goes fully automatic.",
                 },
               ].map((item) => (
                 <div
@@ -121,7 +121,7 @@ export default function HomePage() {
         )}
       </main>
 
-      <PostScanModal
+      <PostScanOrchestrator
         open={modalOpen}
         pages={pages}
         format={format}

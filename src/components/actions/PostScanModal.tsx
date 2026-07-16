@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { CheckCircle2, Download, HardDrive, Mail } from "lucide-react";
-import type { DriveFolder, ExportFormat, ScannedPage } from "@/lib/types";
+import type {
+  ClassificationResult,
+  DriveFolder,
+  ExportFormat,
+  ScannedPage,
+} from "@/lib/types";
 import { downloadBlob, exportPages } from "@/lib/image/export";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +26,10 @@ type Props = {
   format: ExportFormat;
   onClose: () => void;
   onDone?: () => void;
+  /** Optional AI classification context from Phase 2 routing */
+  classificationHint?: ClassificationResult | null;
+  /** Called after a successful Drive upload (for 3-Strike learning) */
+  onDriveFiled?: (folder: DriveFolder) => void | Promise<void>;
 };
 
 export function PostScanModal({
@@ -29,6 +38,8 @@ export function PostScanModal({
   format,
   onClose,
   onDone,
+  classificationHint,
+  onDriveFiled,
 }: Props) {
   const [tab, setTab] = useState<ActionTab>(null);
   const [folder, setFolder] = useState<DriveFolder | null>(null);
@@ -92,6 +103,7 @@ export function PostScanModal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Upload failed");
+      await onDriveFiled?.(folder);
       setStatus(`Saved to ${folder.name}: ${data.name ?? filename}`);
       setDone(true);
     } catch (e) {
@@ -169,6 +181,15 @@ export function PostScanModal({
         </div>
       ) : (
         <div className="space-y-5">
+          {classificationHint && (
+            <p className="text-xs text-[var(--fg-muted)] rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
+              AI:{" "}
+              <span className="text-teal-200">
+                {classificationHint.vendor} · {classificationHint.doc_type}
+              </span>{" "}
+              — {classificationHint.summary}
+            </p>
+          )}
           <div className="flex gap-2 overflow-x-auto pb-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {pages.slice(0, 4).map((p, i) => (
