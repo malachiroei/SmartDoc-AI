@@ -1,0 +1,54 @@
+"use client";
+
+import type { ScanFilter } from "@/lib/types";
+import { FILTER_LABELS } from "@/lib/image/filters";
+import { cn } from "@/lib/utils";
+
+const FILTERS: ScanFilter[] = ["original", "magic", "grayscale", "sharp"];
+
+type Props = {
+  value: ScanFilter;
+  onChange: (filter: ScanFilter) => void;
+  previewSrc?: string;
+};
+
+export function FilterSelector({ value, onChange, previewSrc }: Props) {
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+      {FILTERS.map((f) => (
+        <button
+          key={f}
+          type="button"
+          onClick={() => onChange(f)}
+          className={cn(
+            "shrink-0 w-20 rounded-xl border overflow-hidden transition-all",
+            value === f
+              ? "border-teal-400 ring-2 ring-teal-400/40"
+              : "border-[var(--border)] opacity-80 hover:opacity-100"
+          )}
+        >
+          <div
+            className={cn(
+              "h-14 bg-[var(--surface-2)]",
+              f === "grayscale" && "grayscale",
+              f === "magic" && "contrast-150 brightness-110 saturate-0",
+              f === "sharp" && "contrast-125"
+            )}
+            style={
+              previewSrc
+                ? {
+                    backgroundImage: `url(${previewSrc})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }
+                : undefined
+            }
+          />
+          <div className="px-1 py-1.5 text-[10px] text-center text-[var(--fg-muted)] bg-[var(--surface)]">
+            {FILTER_LABELS[f]}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
