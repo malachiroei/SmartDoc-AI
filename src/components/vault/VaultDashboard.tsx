@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Shield } from "lucide-react";
+import Link from "next/link";
+import { Loader2, Search, Shield, ScanLine } from "lucide-react";
 import type { PersonalDocument, RetrieveDocumentCard, RetrieveResult } from "@/lib/types";
 import {
   fetchVaultDocuments,
@@ -102,16 +103,24 @@ export function VaultDashboard({ refreshKey }: Props) {
 
   return (
     <div className="space-y-8" dir="rtl">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/15 text-emerald-300">
-          <Shield className="h-5 w-5" />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/15 text-emerald-300">
+            <Shield className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-display)] text-xl">
+              {he.vault.title}
+            </h2>
+            <p className="text-sm text-[var(--fg-muted)]">{he.vault.subtitle}</p>
+          </div>
         </div>
-        <div>
-          <h2 className="font-[family-name:var(--font-display)] text-xl">
-            {he.vault.title}
-          </h2>
-          <p className="text-sm text-[var(--fg-muted)]">{he.vault.subtitle}</p>
-        </div>
+        <Link href="/scan?kind=personal">
+          <Button variant="secondary" size="sm">
+            <ScanLine className="h-4 w-4" />
+            סריקת תעודה לכספת
+          </Button>
+        </Link>
       </div>
 
       {/* AI Agent search */}

@@ -13,6 +13,8 @@ export type ScannedPage = {
   createdAt: number;
   /** Original upload filename when available (used for demo personal-doc detection) */
   sourceFileName?: string;
+  /** User selected "personal ID / vault" scan mode */
+  forcePersonalDoc?: boolean;
 };
 
 export type ExportFormat = "pdf" | "jpg";

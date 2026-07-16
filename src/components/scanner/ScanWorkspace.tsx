@@ -7,6 +7,7 @@ import {
   Crop,
   FileImage,
   FileText,
+  Sparkles,
   Upload,
   X,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import {
 import { applyFilter } from "@/lib/image/filters";
 import { isPdfFile, pdfFileToImageDataUrls } from "@/lib/image/pdf";
 import { he } from "@/lib/i18n/he";
+import { cn } from "@/lib/utils";
 import { CameraViewfinder } from "./CameraViewfinder";
 import { PerspectiveEditor } from "./PerspectiveEditor";
 import { FilterSelector } from "./FilterSelector";
@@ -27,10 +29,13 @@ import { PageThumbnails } from "./PageThumbnails";
 import { Button } from "@/components/ui/Button";
 
 type Mode = "camera" | "review";
+export type ScanKind = "document" | "personal";
 
 type Props = {
   onSave: (pages: ScannedPage[], format: ExportFormat) => void;
   onCancel?: () => void;
+  /** Pre-select personal vault mode (e.g. /scan?kind=personal) */
+  defaultScanKind?: ScanKind;
 };
 
 async function processPage(
@@ -44,7 +49,19 @@ async function processPage(
   return canvasToDataUrl(filtered, "image/jpeg", 0.92);
 }
 
-export function ScanWorkspace({ onSave, onCancel }: Props) {
+function stampPersonal(
+  pages: ScannedPage[],
+  kind: ScanKind
+): ScannedPage[] {
+  const force = kind === "personal";
+  return pages.map((p) => ({ ...p, forcePersonalDoc: force }));
+}
+
+export function ScanWorkspace({
+  onSave,
+  onCancel,
+  defaultScanKind = "document",
+}: Props) {
   const [mode, setMode] = useState<Mode>("camera");
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -55,6 +72,11 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [format, setFormat] = useState<ExportFormat>("pdf");
+  const [scanKind, setScanKind] = useState<ScanKind>(defaultScanKind);
+
+  useEffect(() => {
+    setScanKind(defaultScanKind);
+  }, [defaultScanKind]);
 
   const active = pages.find((p) => p.id === activeId) ?? null;
 
@@ -93,8 +115,6 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
           throw new Error(he.scanner.pdfEmpty);
         }
 
-        // Convert every PDF page into a scan session page (JPEG data URLs)
-        // so AI classify + routing receive image payloads seamlessly.
         const newPages: ScannedPage[] = [];
         for (const dataUrl of pageUrls) {
           const img = await loadImage(dataUrl);
@@ -108,6 +128,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
             corners,
             createdAt: Date.now(),
             sourceFileName: file.name,
+            forcePersonalDoc: scanKind === "personal",
           });
         }
 
@@ -132,35 +153,61 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
       setMode("review");
     } catch (e) {
       console.error(e);
-      window.alert(
-        e instanceof Error ? e.message : he.scanner.openFailed
-      );
+      window.alert(e instanceof Error ? e.message : he.scanner.openFailed);
     } finally {
       setBusy(false);
     }
   };
 
+  const buildDraftPage = async (): Promise<ScannedPage | null> => {
+    if (!draftOriginal || !draftCorners || !preview) return null;
+    const processed = await processPage(draftOriginal, draftCorners, filter);
+    return {
+      id: nanoid(),
+      originalDataUrl: draftOriginal,
+      processedDataUrl: processed,
+      filter,
+      corners: draftCorners,
+      createdAt: Date.now(),
+      sourceFileName: draftFileName,
+      forcePersonalDoc: scanKind === "personal",
+    };
+  };
+
+  const clearDraft = () => {
+    setDraftOriginal(null);
+    setDraftCorners(null);
+    setDraftFileName(undefined);
+    setPreview(null);
+  };
+
+  /** Add page to session, stay in camera for more pages */
   const confirmPage = async () => {
-    if (!draftOriginal || !draftCorners || !preview) return;
     setBusy(true);
     try {
-      const processed = await processPage(draftOriginal, draftCorners, filter);
-      const page: ScannedPage = {
-        id: nanoid(),
-        originalDataUrl: draftOriginal,
-        processedDataUrl: processed,
-        filter,
-        corners: draftCorners,
-        createdAt: Date.now(),
-        sourceFileName: draftFileName,
-      };
+      const page = await buildDraftPage();
+      if (!page) return;
       setPages((prev) => [...prev, page]);
       setActiveId(page.id);
-      setDraftOriginal(null);
-      setDraftCorners(null);
-      setDraftFileName(undefined);
-      setPreview(null);
+      clearDraft();
       setMode("camera");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Finish with current draft (+ any existing pages) and run classify */
+  const finishAndScan = async () => {
+    setBusy(true);
+    try {
+      let nextPages = [...pages];
+      if (draftOriginal && draftCorners && preview) {
+        const page = await buildDraftPage();
+        if (page) nextPages = [...nextPages, page];
+      }
+      if (nextPages.length === 0) return;
+      clearDraft();
+      onSave(stampPersonal(nextPages, scanKind), format);
     } finally {
       setBusy(false);
     }
@@ -202,8 +249,42 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
     });
   };
 
+  const ScanKindToggle = (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/80 p-3 space-y-2">
+      <p className="text-xs text-[var(--fg-muted)]">{he.scanner.scanTypeLabel}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setScanKind("document")}
+          className={cn(
+            "rounded-xl border px-3 py-2.5 text-sm text-start transition-colors",
+            scanKind === "document"
+              ? "border-teal-400/50 bg-teal-400/15 text-teal-100"
+              : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+          )}
+        >
+          {he.scanner.scanTypeDocument}
+        </button>
+        <button
+          type="button"
+          onClick={() => setScanKind("personal")}
+          className={cn(
+            "rounded-xl border px-3 py-2.5 text-sm text-start transition-colors",
+            scanKind === "personal"
+              ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-100"
+              : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+          )}
+        >
+          {he.scanner.scanTypePersonal}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-4" dir="rtl">
+      {ScanKindToggle}
+
       {mode === "camera" && (
         <>
           <CameraViewfinder onCapture={handleCapture} />
@@ -267,22 +348,32 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
               />
             </div>
           )}
+
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={() => void finishAndScan()}
+            disabled={busy || !preview}
+          >
+            <Sparkles className="h-5 w-5" />
+            {he.scanner.finishScan}
+          </Button>
+
           <div className="flex gap-2">
             <Button
               variant="secondary"
               className="flex-1"
               onClick={() => {
-                setDraftOriginal(null);
-                setDraftCorners(null);
-                setPreview(null);
+                clearDraft();
                 setMode("camera");
               }}
             >
               {he.scanner.retake}
             </Button>
             <Button
+              variant="secondary"
               className="flex-1"
-              onClick={confirmPage}
+              onClick={() => void confirmPage()}
               disabled={busy || !preview}
             >
               <Check className="h-4 w-4" /> {he.scanner.addPage}
@@ -291,7 +382,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
         </div>
       )}
 
-      {pages.length > 0 && (
+      {pages.length > 0 && mode === "camera" && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-[family-name:var(--font-display)] text-lg">
@@ -340,10 +431,11 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
           <Button
             className="w-full"
             size="lg"
-            onClick={() => onSave(pages, format)}
+            onClick={() => onSave(stampPersonal(pages, scanKind), format)}
             disabled={pages.length === 0}
           >
-            {he.scanner.saveContinue}
+            <Sparkles className="h-5 w-5" />
+            {he.scanner.finishScan}
           </Button>
         </div>
       )}

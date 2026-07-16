@@ -86,6 +86,7 @@ export function PostScanOrchestrator({
           .map((p) => p.sourceFileName)
           .filter(Boolean)
           .join(" ");
+        const forcePersonal = pages.some((p) => p.forcePersonalDoc);
         const classifyData = await fetchJsonOk<ClassificationResult & { error?: string }>(
           "/api/ai/classify",
           {
@@ -94,7 +95,10 @@ export function PostScanOrchestrator({
             body: JSON.stringify({
               imageBase64,
               fileName: fileNameHint || undefined,
-              hint: fileNameHint || undefined,
+              hint: forcePersonal
+                ? "תעודה אישית רישיון דרכון זהות"
+                : fileNameHint || undefined,
+              forcePersonal,
             }),
             networkError: he.classify.failed,
           }

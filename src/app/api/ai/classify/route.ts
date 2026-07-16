@@ -34,6 +34,9 @@ export async function POST(request: Request) {
     const fileName =
       typeof body.fileName === "string" ? body.fileName : undefined;
     const hint = typeof body.hint === "string" ? body.hint : undefined;
+    const forcePersonal = Boolean(
+      body.forcePersonal || body.forcePersonalDoc || body.is_personal_doc
+    );
 
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return NextResponse.json(
@@ -47,7 +50,7 @@ export async function POST(request: Request) {
       : `data:image/jpeg;base64,${imageBase64}`;
 
     const { result, provider, memoryUsed, adaptivePromptPreview } =
-      await classifyDocument(payload, { fileName, hint });
+      await classifyDocument(payload, { fileName, hint, forcePersonal });
 
     return NextResponse.json({
       ...result,

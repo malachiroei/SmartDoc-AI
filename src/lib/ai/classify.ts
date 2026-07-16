@@ -209,7 +209,7 @@ export function parseClassificationJson(raw: string): ClassificationResult {
 export async function classifyBuffer(
   buffer: Buffer,
   mimeType: string,
-  opts?: { fileName?: string }
+  opts?: { fileName?: string; forcePersonal?: boolean }
 ): Promise<{
   result: ClassificationResult;
   provider: VisionProvider | "demo";
@@ -217,7 +217,10 @@ export async function classifyBuffer(
 }> {
   const base64 = buffer.toString("base64");
   const dataUrl = `data:${mimeType};base64,${base64}`;
-  return classifyDocument(dataUrl, { fileName: opts?.fileName });
+  return classifyDocument(dataUrl, {
+    fileName: opts?.fileName,
+    forcePersonal: opts?.forcePersonal,
+  });
 }
 
 function dataUrlParts(dataUrl: string): { mime: string; base64: string } {
@@ -392,7 +395,7 @@ async function classifyAnthropic(
 
 export async function classifyDocument(
   imageDataUrl: string,
-  opts?: { fileName?: string; hint?: string }
+  opts?: { fileName?: string; hint?: string; forcePersonal?: boolean }
 ): Promise<{
   result: ClassificationResult;
   provider: VisionProvider | "demo";
@@ -402,10 +405,13 @@ export async function classifyDocument(
   const memory = await loadClassificationMemory();
   const systemPrompt = buildAdaptiveSystemPrompt(memory);
   const memoryUsed = memory.examples.length;
-  const personalHint = looksLikePersonalDocument(opts?.fileName, opts?.hint);
+  const forcePersonal = Boolean(opts?.forcePersonal);
+  const personalHint =
+    forcePersonal || looksLikePersonalDocument(opts?.fileName, opts?.hint);
 
   console.info(
     `[ai/classify] Adaptive few-shot: ${memoryUsed} examples, ${memory.feedbackOverrides.length} overrides, ${memory.knownFolders.length} folders` +
+      (forcePersonal ? ", forcePersonal=true" : "") +
       (personalHint ? ", personalHint=true" : "")
   );
 
@@ -413,15 +419,17 @@ export async function classifyDocument(
 
   // Demo / no LLM key — never return invoice mock for personal docs
   if (!provider) {
-    if (personalHint) {
+    if (personalHint || forcePersonal) {
       console.info(
-        "[ai/classify] Demo personal-vault override (no API key + personal filename/hint)"
+        "[ai/classify] Demo personal-vault override (no API key + personal toggle/hint)"
       );
       return {
         provider: "demo",
         memoryUsed,
         adaptivePromptPreview: systemPrompt.slice(0, 500),
-        result: personalVaultDemoResult(opts?.fileName || opts?.hint),
+        result: personalVaultDemoResult(
+          opts?.hint || opts?.fileName || "רישיון נהיגה"
+        ),
       };
     }
 
@@ -483,10 +491,10 @@ export async function classifyDocument(
     result = await classifyAnthropic(imageDataUrl, systemPrompt);
   }
 
-  // Filename hint wins over mistaken invoice classification in edge cases
-  if (personalHint && !result.is_personal_doc) {
+  // Filename / UI toggle wins over mistaken invoice classification
+  if ((personalHint || forcePersonal) && !result.is_personal_doc) {
     result = {
-      ...personalVaultDemoResult(opts?.fileName || opts?.hint),
+      ...personalVaultDemoResult(opts?.fileName || opts?.hint || "רישיון"),
       confidence: Math.max(result.confidence, 0.92),
       document_number: result.document_number ?? "053088654",
       expiration_date: result.expiration_date ?? "2026-01-01",
