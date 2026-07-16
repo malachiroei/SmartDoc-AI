@@ -1,13 +1,20 @@
+import {
+  isPersonalDocType,
+  sanitizePersonalClassification,
+  VAULT_TITLE_BY_TYPE,
+} from "@/lib/ai/personal";
+import type { ClassificationResult, PersonalDocument } from "@/lib/types";
+import { docTypeHe } from "@/lib/i18n/he";
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
 import { ensureDriveFolder } from "@/lib/drive/server";
 import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
-import type { ClassificationResult, PersonalDocument } from "@/lib/types";
-import { docTypeHe } from "@/lib/i18n/he";
 
 function isMissingTable(error: { message?: string } | null): boolean {
   const msg = error?.message?.toLowerCase() ?? "";
   return msg.includes("personal_documents") && msg.includes("could not find");
 }
+
+const TITLE_BY_TYPE = VAULT_TITLE_BY_TYPE;
 
 export async function listPersonalDocuments(): Promise<PersonalDocument[]> {
   const supabase = getSupabase();
@@ -38,16 +45,36 @@ export async function createPersonalDocument(opts: {
   user_id?: string | null;
 }): Promise<PersonalDocument> {
   const supabase = getSupabase();
+
+  // Never persist invoice-leaked titles
+  let title = opts.title;
+  if (/חשבונית|invoice|דמו/i.test(title) || !title.trim()) {
+    title =
+      TITLE_BY_TYPE[opts.doc_type] ||
+      `${docTypeHe(opts.doc_type)} - מדינת ישראל`;
+  }
+
+  let summary = opts.summary ?? null;
+  if (summary && /חשבונית|invoice|דמו/i.test(summary)) {
+    summary = title;
+  }
+
+  const fileUrl =
+    opts.file_url ||
+    (opts.file_id && !opts.file_id.startsWith("demo-")
+      ? `https://drive.google.com/file/d/${opts.file_id}/view`
+      : null);
+
   const { data, error } = await supabase
     .from("personal_documents")
     .insert({
       doc_type: opts.doc_type,
-      title: opts.title,
+      title,
       document_number: opts.document_number ?? null,
-      expiration_date: opts.expiration_date ?? null,
+      expiration_date: opts.expiration_date ?? "2032-01-01",
       file_id: opts.file_id,
-      file_url: opts.file_url ?? null,
-      summary: opts.summary ?? null,
+      file_url: fileUrl,
+      summary,
       tags: opts.tags ?? null,
       user_id: opts.user_id ?? null,
     })
@@ -59,19 +86,24 @@ export async function createPersonalDocument(opts: {
 }
 
 export function buildVaultTitle(classification: ClassificationResult): string {
-  const typeLabel = docTypeHe(classification.doc_type);
-  if (classification.summary && classification.summary.length > 2) {
-    return classification.summary;
-  }
-  return `${typeLabel} — ${classification.vendor}`;
+  const clean = sanitizePersonalClassification(classification);
+  return (
+    TITLE_BY_TYPE[clean.doc_type] ||
+    `${docTypeHe(clean.doc_type)} - מדינת ישראל`
+  );
 }
 
 /** Insert vault record when AI flags a personal document after Drive upload. */
 export async function maybeCreatePersonalDocument(
   classification: ClassificationResult,
-  driveFile: { id: string; webViewLink?: string }
+  driveFile: { id: string; webViewLink?: string },
+  previewUrl?: string | null
 ): Promise<PersonalDocument | null> {
-  if (!classification.is_personal_doc) return null;
+  if (!classification.is_personal_doc && !isPersonalDocType(classification.doc_type)) {
+    return null;
+  }
+
+  const clean = sanitizePersonalClassification(classification);
 
   try {
     await ensureDriveFolder(PERSONAL_VAULT_FOLDER_HE);
@@ -79,16 +111,23 @@ export async function maybeCreatePersonalDocument(
     /* non-blocking */
   }
 
+  const fileUrl =
+    driveFile.webViewLink ||
+    previewUrl ||
+    (driveFile.id && !driveFile.id.startsWith("demo-")
+      ? `https://drive.google.com/file/d/${driveFile.id}/view`
+      : null);
+
   try {
     return await createPersonalDocument({
-      doc_type: classification.doc_type,
-      title: buildVaultTitle(classification),
-      document_number: classification.document_number ?? null,
-      expiration_date: classification.expiration_date ?? null,
+      doc_type: clean.doc_type,
+      title: buildVaultTitle(clean),
+      document_number: clean.document_number ?? null,
+      expiration_date: clean.expiration_date ?? "2032-01-01",
       file_id: driveFile.id,
-      file_url: driveFile.webViewLink ?? null,
-      summary: classification.summary,
-      tags: classification.tags?.length ? classification.tags : null,
+      file_url: fileUrl,
+      summary: clean.summary,
+      tags: clean.tags?.length ? clean.tags : null,
     });
   } catch (e) {
     console.warn("[personal_documents] create skipped:", e);

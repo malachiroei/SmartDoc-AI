@@ -22,6 +22,7 @@ import { createBillFromClassification } from "@/lib/bills/client";
 import { createVaultFromClassification } from "@/lib/vault/client";
 import { submitClassificationFeedback } from "@/lib/ai/feedback-client";
 import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
+import { sanitizePersonalClassification } from "@/lib/ai/personal";
 import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -114,11 +115,14 @@ export function PostScanOrchestrator({
           is_unpaid_bill: classifyData.is_unpaid_bill,
           amount: classifyData.amount,
           due_date: classifyData.due_date,
-          is_personal_doc: classifyData.is_personal_doc,
+          is_personal_doc: classifyData.is_personal_doc || forcePersonal,
           document_number: classifyData.document_number,
           expiration_date: classifyData.expiration_date,
           tags: classifyData.tags,
         };
+        if (result.is_personal_doc || forcePersonal) {
+          Object.assign(result, sanitizePersonalClassification(result));
+        }
         setClassification(result);
 
         // Personal vault — auto-file to מסמכים אישיים
@@ -133,7 +137,11 @@ export function PostScanOrchestrator({
               fileBase: makeScanFileBase(),
             });
             if (cancelled) return;
-            const saved = await createVaultFromClassification(result, uploaded);
+            const previewUrl = pages[0]?.processedDataUrl ?? null;
+            const saved = await createVaultFromClassification(result, uploaded, {
+              previewUrl,
+              forcePersonal: true,
+            });
             toast(
               he.vault.vaultSaved(
                 saved?.title || result.summary || docTypeHe(result.doc_type)
@@ -242,7 +250,10 @@ export function PostScanOrchestrator({
   ) => {
     if (!cls.is_personal_doc) return;
     try {
-      const doc = await createVaultFromClassification(cls, driveFile);
+      const doc = await createVaultFromClassification(cls, driveFile, {
+        previewUrl: pages[0]?.processedDataUrl ?? null,
+        forcePersonal: true,
+      });
       if (doc) {
         toast(he.vault.vaultSaved(doc.title), "success");
       }
@@ -256,16 +267,23 @@ export function PostScanOrchestrator({
     corrected: ClassificationResult,
     folderName?: string
   ) => {
-    setClassification(corrected);
+    const cleaned =
+      corrected.is_personal_doc ||
+      ["Driver_License", "ID_Card", "Passport", "Car_License", "Insurance", "Certificate", "ID"].includes(
+        corrected.doc_type
+      )
+        ? sanitizePersonalClassification(corrected)
+        : corrected;
+    setClassification(cleaned);
     try {
       const res = await submitClassificationFeedback({
         original,
         corrected: {
-          doc_type: corrected.doc_type,
-          vendor: corrected.vendor,
-          folder: folderName ?? corrected.suggested_folder_name,
-          summary: corrected.summary,
-          is_personal_doc: corrected.is_personal_doc,
+          doc_type: cleaned.doc_type,
+          vendor: cleaned.vendor,
+          folder: folderName ?? cleaned.suggested_folder_name,
+          summary: cleaned.summary,
+          is_personal_doc: cleaned.is_personal_doc,
         },
       });
       if (res.ok && !res.skipped) {

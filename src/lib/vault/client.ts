@@ -16,9 +16,10 @@ export async function fetchVaultDocuments(): Promise<PersonalDocument[]> {
 
 export async function createVaultFromClassification(
   classification: ClassificationResult,
-  driveFile: { id: string; webViewLink?: string }
+  driveFile: { id: string; webViewLink?: string },
+  opts?: { previewUrl?: string | null; forcePersonal?: boolean }
 ): Promise<PersonalDocument | null> {
-  if (!classification.is_personal_doc) return null;
+  if (!classification.is_personal_doc && !opts?.forcePersonal) return null;
 
   const data = await fetchJsonOk<{
     document?: PersonalDocument;
@@ -30,6 +31,8 @@ export async function createVaultFromClassification(
       classification,
       driveFileId: driveFile.id,
       driveFileUrl: driveFile.webViewLink ?? null,
+      previewUrl: opts?.previewUrl ?? null,
+      forcePersonal: opts?.forcePersonal ?? classification.is_personal_doc,
     }),
     networkError: he.vault.createError,
   });

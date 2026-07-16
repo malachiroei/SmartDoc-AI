@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Download, AlertTriangle } from "lucide-react";
+import { ExternalLink, Download, AlertTriangle, IdCard, FileText } from "lucide-react";
 import type { RetrieveDocumentCard } from "@/lib/types";
 import { docTypeHe, he } from "@/lib/i18n/he";
 import { cn } from "@/lib/utils";
@@ -19,8 +19,26 @@ function formatExpiry(doc: RetrieveDocumentCard): string {
   }
 }
 
+function isImageUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return (
+    url.startsWith("data:image/") ||
+    /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i.test(url) ||
+    url.includes("googleusercontent") ||
+    url.includes("/uc?export=")
+  );
+}
+
+function viewUrl(doc: RetrieveDocumentCard): string | null {
+  if (doc.file_url) return doc.file_url;
+  if (doc.file_id && !doc.file_id.startsWith("demo-")) {
+    return `https://drive.google.com/file/d/${doc.file_id}/view`;
+  }
+  return null;
+}
+
 function downloadUrl(doc: RetrieveDocumentCard): string | null {
-  if (!doc.file_url && !doc.file_id) return null;
+  if (doc.file_url?.startsWith("data:")) return doc.file_url;
   if (doc.file_id && !doc.file_id.startsWith("demo-")) {
     return `https://drive.google.com/uc?export=download&id=${doc.file_id}`;
   }
@@ -32,78 +50,111 @@ const linkBtn =
 
 export function VaultDocumentCard({ document: doc, className }: Props) {
   const typeLabel = docTypeHe(doc.doc_type);
-  const viewHref = doc.file_url;
+  const href = viewUrl(doc);
   const dlHref = downloadUrl(doc);
+  const showImage = isImageUrl(doc.file_url);
 
   return (
     <div
       className={cn(
-        "rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3",
+        "rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden flex flex-col",
         className
       )}
       dir="rtl"
     >
-      <div className="min-w-0">
-        <span className="inline-flex rounded-lg border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-[11px] text-teal-200">
-          {typeLabel}
-        </span>
-        <h3 className="mt-2 font-bold text-[var(--fg)] leading-snug">
-          {doc.title}
-        </h3>
-        {doc.summary && (
-          <p className="mt-1 text-xs text-[var(--fg-muted)]">{doc.summary}</p>
-        )}
-      </div>
-
-      <div className="space-y-1.5 text-sm">
-        {doc.document_number && (
-          <p>
-            <span className="text-[var(--fg-muted)]">{he.vault.docNumber}: </span>
-            <span className="font-[family-name:var(--font-mono)] font-semibold">
-              {doc.document_number}
+      {/* Thumbnail / fallback */}
+      <div className="relative aspect-[4/3] bg-[var(--ink)]/60 border-b border-[var(--border)]">
+        {showImage && doc.file_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={doc.file_url}
+            alt={doc.title}
+            className="absolute inset-0 h-full w-full object-contain bg-white/5"
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[var(--fg-muted)]">
+            <IdCard className="h-12 w-12 text-emerald-300/70" />
+            <span className="text-xs flex items-center gap-1">
+              <FileText className="h-3.5 w-3.5" />
+              {typeLabel}
             </span>
-          </p>
+          </div>
         )}
-        <p
-          className={cn(
-            "inline-flex items-center gap-1.5",
-            doc.expired || doc.expiring_soon
-              ? "text-red-300 font-semibold"
-              : "text-[var(--fg-muted)]"
-          )}
-        >
-          {(doc.expired || doc.expiring_soon) && (
-            <AlertTriangle className="h-3.5 w-3.5" />
-          )}
-          {he.vault.expires}: {formatExpiry(doc)}
-          {doc.expired && ` · ${he.vault.expired}`}
-          {!doc.expired && doc.expiring_soon && ` · ${he.vault.expiringSoon}`}
-        </p>
       </div>
 
-      <div className="flex flex-wrap gap-2 pt-1">
-        {viewHref && (
-          <a
-            href={viewHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={linkBtn}
+      <div className="p-4 space-y-3 flex-1 flex flex-col">
+        <div className="min-w-0">
+          <span className="inline-flex rounded-lg border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-[11px] text-teal-200">
+            {typeLabel}
+          </span>
+          <h3 className="mt-2 font-bold text-[var(--fg)] leading-snug">
+            {doc.title}
+          </h3>
+          {doc.summary && doc.summary !== doc.title && (
+            <p className="mt-1 text-xs text-[var(--fg-muted)]">{doc.summary}</p>
+          )}
+        </div>
+
+        <div className="space-y-1.5 text-sm flex-1">
+          {doc.document_number && (
+            <p>
+              <span className="text-[var(--fg-muted)]">{he.vault.docNumber}: </span>
+              <span className="font-[family-name:var(--font-mono)] font-semibold">
+                {doc.document_number}
+              </span>
+            </p>
+          )}
+          <p
+            className={cn(
+              "inline-flex items-center gap-1.5",
+              doc.expired || doc.expiring_soon
+                ? "text-red-300 font-semibold"
+                : "text-[var(--fg-muted)]"
+            )}
           >
-            {he.vault.viewDoc}
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        )}
-        {dlHref && (
-          <a
-            href={dlHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={linkBtn}
-          >
-            {he.vault.downloadDoc}
-            <Download className="h-3.5 w-3.5" />
-          </a>
-        )}
+            {(doc.expired || doc.expiring_soon) && (
+              <AlertTriangle className="h-3.5 w-3.5" />
+            )}
+            {he.vault.expires}: {formatExpiry(doc)}
+            {doc.expired && ` · ${he.vault.expired}`}
+            {!doc.expired && doc.expiring_soon && ` · ${he.vault.expiringSoon}`}
+          </p>
+        </div>
+
+        {/* Always show actions */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={linkBtn}
+            >
+              {he.vault.viewDoc}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : (
+            <span className={cn(linkBtn, "opacity-40 cursor-not-allowed")}>
+              {he.vault.viewDoc}
+            </span>
+          )}
+          {dlHref ? (
+            <a
+              href={dlHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              download={doc.file_url?.startsWith("data:") ? `${doc.title}.jpg` : undefined}
+              className={linkBtn}
+            >
+              {he.vault.downloadDoc}
+              <Download className="h-3.5 w-3.5" />
+            </a>
+          ) : (
+            <span className={cn(linkBtn, "opacity-40 cursor-not-allowed")}>
+              {he.vault.downloadDoc}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

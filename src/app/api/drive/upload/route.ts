@@ -14,13 +14,15 @@ export async function POST(request: Request) {
   const token = process.env.GOOGLE_ACCESS_TOKEN;
 
   if (!token) {
-    // Demo mode — acknowledge upload without calling Google
+    // Demo mode — still return a viewable link so Vault cards work
     await new Promise((r) => setTimeout(r, 600));
+    const id = `demo-${Date.now()}`;
     return NextResponse.json({
-      id: `demo-${Date.now()}`,
+      id,
       name: fileName,
       folderId,
       demo: true,
+      webViewLink: `https://drive.google.com/file/d/${id}/view`,
       message:
         "Demo upload OK. Set GOOGLE_ACCESS_TOKEN to enable real Drive uploads.",
     });

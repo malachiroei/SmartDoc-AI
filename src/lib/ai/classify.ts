@@ -7,8 +7,18 @@ import {
   loadClassificationMemory,
   type ClassificationMemory,
 } from "@/lib/ai/memory";
+import {
+  isPersonalDocType,
+  personalVaultDemoResult,
+  sanitizePersonalClassification,
+} from "@/lib/ai/personal";
 
 export { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
+export {
+  isPersonalDocType,
+  personalVaultDemoResult,
+  sanitizePersonalClassification,
+} from "@/lib/ai/personal";
 
 /** Detect personal ID / license / passport from filename or free-text hint */
 export function looksLikePersonalDocument(
@@ -19,44 +29,6 @@ export function looksLikePersonalDocument(
   return /license|driver|passport|id[_\s-]?card|\bid\b|identity|רישיון|תעודה|תעודת|דרכון|נהיגה|זהות|רכב/.test(
     text
   );
-}
-
-export function personalVaultDemoResult(
-  hint?: string | null
-): ClassificationResult {
-  const h = (hint || "").toLowerCase();
-  let doc_type: DocType = "Driver_License";
-  let summary = "רישיון נהיגה - רועי מלאכי (נתוני דמו לכספת)";
-  let tags = ["רישיון", "נהיגה", "זהות"];
-
-  if (/passport|דרכון/.test(h)) {
-    doc_type = "Passport";
-    summary = "דרכון - רועי מלאכי (נתוני דמו לכספת)";
-    tags = ["דרכון", "זהות", "טיסות"];
-  } else if (/id|זהות|תעודת/.test(h) && !/license|רישיון|driver|נהיגה/.test(h)) {
-    doc_type = "ID_Card";
-    summary = "תעודת זהות - רועי מלאכי (נתוני דמו לכספת)";
-    tags = ["תעודה", "זהות"];
-  } else if (/car|vehicle|רכב/.test(h)) {
-    doc_type = "Car_License";
-    summary = "רישיון רכב (נתוני דמו לכספת)";
-    tags = ["רכב", "רישיון"];
-  }
-
-  return {
-    doc_type,
-    vendor: "State_of_Israel",
-    suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
-    summary,
-    confidence: 0.99,
-    is_personal_doc: true,
-    is_unpaid_bill: false,
-    amount: null,
-    due_date: null,
-    document_number: "053088654",
-    expiration_date: "2026-01-01",
-    tags,
-  };
 }
 
 const BASE_SCHEMA = `Schema (STRICT JSON only — no markdown):
@@ -427,8 +399,11 @@ export async function classifyDocument(
         provider: "demo",
         memoryUsed,
         adaptivePromptPreview: systemPrompt.slice(0, 500),
-        result: personalVaultDemoResult(
-          opts?.hint || opts?.fileName || "רישיון נהיגה"
+        result: sanitizePersonalClassification(
+          personalVaultDemoResult(
+            opts?.hint || opts?.fileName || "רישיון נהיגה"
+          ),
+          opts?.hint || opts?.fileName
         ),
       };
     }
@@ -444,18 +419,15 @@ export async function classifyDocument(
         provider: "demo",
         memoryUsed,
         adaptivePromptPreview: systemPrompt.slice(0, 500),
-        result: {
-          doc_type: personalEx.doc_type as DocType,
-          vendor: "State_of_Israel",
-          suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
-          summary: personalEx.summary || "מסמך אישי",
-          confidence: 0.9,
-          is_unpaid_bill: false,
-          is_personal_doc: true,
-          amount: null,
-          due_date: null,
-          tags: [],
-        },
+        result: sanitizePersonalClassification(
+          {
+            doc_type: personalEx.doc_type as DocType,
+            vendor: "State_of_Israel",
+            summary: personalEx.summary ?? undefined,
+            confidence: 0.9,
+          },
+          personalEx.doc_type
+        ),
       };
     }
 
@@ -492,31 +464,18 @@ export async function classifyDocument(
   }
 
   // Filename / UI toggle wins over mistaken invoice classification
-  if ((personalHint || forcePersonal) && !result.is_personal_doc) {
-    result = {
-      ...personalVaultDemoResult(opts?.fileName || opts?.hint || "רישיון"),
-      confidence: Math.max(result.confidence, 0.92),
-      document_number: result.document_number ?? "053088654",
-      expiration_date: result.expiration_date ?? "2026-01-01",
-    };
+  if (personalHint || forcePersonal) {
+    result = sanitizePersonalClassification(
+      result,
+      opts?.hint || opts?.fileName || result.doc_type
+    );
   } else {
     result = applyFeedbackOverrides(result, memory.feedbackOverrides);
   }
 
   // Never let invoice feedback override a personal classification
-  if (result.is_personal_doc) {
-    result = {
-      ...result,
-      is_unpaid_bill: false,
-      amount: null,
-      due_date: null,
-      suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
-      vendor:
-        result.vendor === "Demo_Vendor" ||
-        result.vendor === "Demo_Invoice_Unverified"
-          ? "State_of_Israel"
-          : result.vendor,
-    };
+  if (result.is_personal_doc || isPersonalDocType(result.doc_type)) {
+    result = sanitizePersonalClassification(result, result.doc_type);
   }
 
   return {

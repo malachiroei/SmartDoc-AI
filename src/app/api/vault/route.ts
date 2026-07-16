@@ -4,6 +4,10 @@ import {
   listPersonalDocuments,
   buildVaultTitle,
 } from "@/lib/vault/documents";
+import {
+  isPersonalDocType,
+  sanitizePersonalClassification,
+} from "@/lib/ai/personal";
 import { mapSupabaseError } from "@/lib/supabase/client";
 import type { ClassificationResult } from "@/lib/types";
 
@@ -27,23 +31,40 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const classification = body.classification as ClassificationResult;
+    const raw = body.classification as ClassificationResult;
     const driveFileId = String(body.driveFileId ?? "");
     const driveFileUrl = body.driveFileUrl
       ? String(body.driveFileUrl)
       : null;
+    const previewUrl = body.previewUrl ? String(body.previewUrl) : null;
 
-    if (!classification?.is_personal_doc || !driveFileId) {
+    const looksPersonal =
+      raw?.is_personal_doc ||
+      isPersonalDocType(raw?.doc_type) ||
+      Boolean(body.forcePersonal);
+
+    if (!looksPersonal || !driveFileId) {
       return NextResponse.json({ skipped: true });
     }
+
+    const classification = sanitizePersonalClassification(raw);
+
+    // Prefer real image preview (data URL) so Vault cards can show a thumbnail
+    const fileUrl = previewUrl?.startsWith("data:")
+      ? previewUrl
+      : driveFileUrl ||
+        previewUrl ||
+        (!driveFileId.startsWith("demo-")
+          ? `https://drive.google.com/file/d/${driveFileId}/view`
+          : null);
 
     const doc = await createPersonalDocument({
       doc_type: classification.doc_type,
       title: buildVaultTitle(classification),
       document_number: classification.document_number ?? null,
-      expiration_date: classification.expiration_date ?? null,
+      expiration_date: classification.expiration_date ?? "2032-01-01",
       file_id: driveFileId,
-      file_url: driveFileUrl,
+      file_url: fileUrl,
       summary: classification.summary,
       tags: classification.tags?.length ? classification.tags : null,
     });

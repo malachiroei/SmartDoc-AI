@@ -17,12 +17,23 @@ type Props = {
 };
 
 function toCard(doc: PersonalDocument): RetrieveDocumentCard {
+  const leaky = /חשבונית|invoice|דמו/i.test(doc.title) || /חשבונית|invoice/i.test(doc.summary ?? "");
+  const title =
+    leaky || !doc.title
+      ? ({
+          Driver_License: "רישיון נהיגה - מדינת ישראל",
+          Passport: "דרכון - מדינת ישראל",
+          ID_Card: "תעודת זהות - מדינת ישראל",
+          Car_License: "רישיון רכב - מדינת ישראל",
+        }[doc.doc_type] ?? doc.title)
+      : doc.title;
+
   const exp = doc.expiration_date ? new Date(doc.expiration_date) : null;
   const now = new Date();
   const days = exp ? (exp.getTime() - now.getTime()) / 86400000 : null;
   return {
     id: doc.id,
-    title: doc.title,
+    title,
     doc_type: doc.doc_type,
     document_number: doc.document_number,
     expiration_date: doc.expiration_date,
@@ -30,7 +41,7 @@ function toCard(doc: PersonalDocument): RetrieveDocumentCard {
     expiring_soon: days != null && days >= 0 && days <= 60,
     file_url: doc.file_url,
     file_id: doc.file_id,
-    summary: doc.summary,
+    summary: leaky ? title : doc.summary,
     source: "vault",
   };
 }
