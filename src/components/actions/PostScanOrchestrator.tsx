@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types";
 import { PostScanModal } from "./PostScanModal";
 import { SmartRoutingDialog } from "./SmartRoutingDialog";
+import { ClassificationBadge } from "./ClassificationBadge";
 import { useToast } from "@/components/ui/Toast";
 import {
   createDriveFolder,
@@ -18,7 +19,7 @@ import {
   upsertRoutingRule,
 } from "@/lib/drive/actions";
 import { fetchJsonOk } from "@/lib/api/client-fetch";
-import { he } from "@/lib/i18n/he";
+import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
 
@@ -122,7 +123,15 @@ export function PostScanOrchestrator({
             fileBase: makeScanFileBase(),
           });
           if (cancelled) return;
-          toast(he.toasts.autoFiled(found.target_folder_name), "auto");
+          const typeLabel = docTypeHe(result.doc_type);
+          toast(
+            he.toasts.autoFiled(
+              typeLabel,
+              result.vendor,
+              found.target_folder_name
+            ),
+            "auto"
+          );
           setBusy(false);
           setPhase("idle");
           setClassification(null);
@@ -165,9 +174,22 @@ export function PostScanOrchestrator({
       });
 
       if (upsert.learned || upsert.confirmation_count >= 3) {
-        toast(he.toasts.learned(classification.vendor), "celebrate");
+        toast(
+          he.toasts.learned(
+            classification.vendor,
+            docTypeHe(classification.doc_type)
+          ),
+          "celebrate"
+        );
       } else {
-        toast(he.toasts.successCount(upsert.confirmation_count), "success");
+        toast(
+          he.toasts.successCount(
+            docTypeHe(classification.doc_type),
+            classification.vendor,
+            upsert.confirmation_count
+          ),
+          "success"
+        );
       }
       return true;
     } catch (e) {

@@ -16,8 +16,9 @@ import {
   DriveUploadBar,
 } from "./DriveFolderPicker";
 import { EmailComposer } from "./EmailComposer";
+import { ClassificationBadge } from "./ClassificationBadge";
 import { cn } from "@/lib/utils";
-import { docTypeHe, he } from "@/lib/i18n/he";
+import { he } from "@/lib/i18n/he";
 
 type ActionTab = "drive" | "email" | null;
 
@@ -176,14 +177,7 @@ export function PostScanModal({
       ) : (
         <div className="space-y-5" dir="rtl">
           {classificationHint && (
-            <p className="text-xs text-[var(--fg-muted)] rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
-              AI:{" "}
-              <span className="text-teal-200">
-                {classificationHint.vendor} ·{" "}
-                {docTypeHe(classificationHint.doc_type)}
-              </span>{" "}
-              — {classificationHint.summary}
-            </p>
+            <ClassificationBadge classification={classificationHint} />
           )}
           <div className="flex gap-2 overflow-x-auto pb-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}

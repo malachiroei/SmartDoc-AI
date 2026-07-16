@@ -10,6 +10,7 @@ import type { ClassificationResult, RoutingRule } from "@/lib/types";
 import { Modal } from "@/components/ui/Modal";
 import { cn } from "@/lib/utils";
 import { docTypeHe, he } from "@/lib/i18n/he";
+import { ClassificationBadge } from "./ClassificationBadge";
 
 type Props = {
   open: boolean;
@@ -49,6 +50,8 @@ export function SmartRoutingDialog({
       wide
     >
       <div className="space-y-4" dir="rtl">
+        <ClassificationBadge classification={classification} />
+
         {rule && !rule.is_autonomous && (
           <p className="text-xs text-[var(--fg-muted)]">
             {he.routing.memory(rule.confirmation_count)}

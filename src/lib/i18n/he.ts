@@ -69,12 +69,12 @@ export const he = {
     filing: "מתייק…",
   },
   toasts: {
-    autoFiled: (folder: string) =>
-      `🤖 תויק אוטומטית ל־${folder} (כלל 3 האישורים פעיל)`,
-    successCount: (count: number) =>
-      `📌 המסמך תויק בהצלחה! (אישור ${count} מתוך 3 ללמידה אוטומטית)`,
-    learned: (vendor: string) =>
-      `🎉 הכלל נלמד! מעכשיו מסמכי ${vendor} יתוייקו לשם באופן אוטומטי`,
+    autoFiled: (docType: string, vendor: string, folder: string) =>
+      `🤖 ${docType} של ${vendor} תויק אוטומטית לתיקיית ${folder} (למידת 3 אישורים פעילה)`,
+    successCount: (docType: string, vendor: string, count: number) =>
+      `📌 ${docType} של ${vendor} תויק בהצלחה! (אישור ${count} מתוך 3 ללמידה אוטומטית)`,
+    learned: (vendor: string, docType: string) =>
+      `🎉 הכלל נלמד! מעכשיו מסמכי ${vendor} (${docType}) יתוייקו אוטומטית לתיקייה זו.`,
     filingFailed: "התיוק נכשל",
     ruleSaveFailed: "שמירת כלל התיוק נכשלה",
   },
