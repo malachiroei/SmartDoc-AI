@@ -20,7 +20,8 @@ import {
 import { fetchJsonOk } from "@/lib/api/client-fetch";
 import { createBillFromClassification } from "@/lib/bills/client";
 import { createVaultFromClassification } from "@/lib/vault/client";
-import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/classify";
+import { submitClassificationFeedback } from "@/lib/ai/feedback-client";
+import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -238,31 +239,54 @@ export function PostScanOrchestrator({
     }
   };
 
-  const afterSuccessfulFile = async (folder: {
-    id: string;
-    name: string;
-  }): Promise<boolean> => {
-    if (!classification) return true;
+  const applyCorrection = async (
+    original: ClassificationResult,
+    corrected: ClassificationResult,
+    folderName?: string
+  ) => {
+    setClassification(corrected);
+    try {
+      const res = await submitClassificationFeedback({
+        original,
+        corrected: {
+          doc_type: corrected.doc_type,
+          vendor: corrected.vendor,
+          folder: folderName ?? corrected.suggested_folder_name,
+          summary: corrected.summary,
+          is_personal_doc: corrected.is_personal_doc,
+        },
+      });
+      if (res.ok && !res.skipped) {
+        toast(he.feedback.saved, "success");
+      }
+    } catch (e) {
+      console.warn("[feedback]", e);
+    }
+  };
+
+  const afterSuccessfulFile = async (
+    folder: { id: string; name: string },
+    cls?: ClassificationResult | null
+  ): Promise<boolean> => {
+    const active = cls ?? classification;
+    if (!active) return true;
     try {
       const upsert = await upsertRoutingRule({
-        vendor_or_doc_type: classification.vendor,
+        vendor_or_doc_type: active.vendor,
         target_folder_id: folder.id,
         target_folder_name: folder.name,
       });
 
       if (upsert.learned || upsert.confirmation_count >= 3) {
         toast(
-          he.toasts.learned(
-            classification.vendor,
-            docTypeHe(classification.doc_type)
-          ),
+          he.toasts.learned(active.vendor, docTypeHe(active.doc_type)),
           "celebrate"
         );
       } else {
         toast(
           he.toasts.successCount(
-            docTypeHe(classification.doc_type),
-            classification.vendor,
+            docTypeHe(active.doc_type),
+            active.vendor,
             upsert.confirmation_count
           ),
           "success"
@@ -278,22 +302,26 @@ export function PostScanOrchestrator({
     }
   };
 
-  const handleFileExisting = async () => {
+  const handleFileExisting = async (corrected: ClassificationResult) => {
     if (!rule || !classification) return;
     setBusy(true);
     try {
+      await applyCorrection(classification, corrected, rule.target_folder_name);
       const uploaded = await uploadPagesToDrive({
         pages,
         format,
         folderId: rule.target_folder_id,
         fileBase: makeScanFileBase(),
       });
-      await maybeBillAlert(classification, uploaded);
-      await maybeVaultSave(classification, uploaded);
-      await afterSuccessfulFile({
-        id: rule.target_folder_id,
-        name: rule.target_folder_name,
-      });
+      await maybeBillAlert(corrected, uploaded);
+      await maybeVaultSave(corrected, uploaded);
+      await afterSuccessfulFile(
+        {
+          id: rule.target_folder_id,
+          name: rule.target_folder_name,
+        },
+        corrected
+      );
       finish();
     } catch (e) {
       toast(e instanceof Error ? e.message : he.toasts.filingFailed);
@@ -302,28 +330,41 @@ export function PostScanOrchestrator({
     }
   };
 
-  const handleCreateNew = async () => {
+  const handleCreateNew = async (corrected: ClassificationResult) => {
     if (!classification) return;
     setBusy(true);
     try {
-      const folder = await createDriveFolder(
-        classification.suggested_folder_name
+      await applyCorrection(
+        classification,
+        corrected,
+        corrected.suggested_folder_name
       );
+      const folder = await createDriveFolder(corrected.suggested_folder_name);
       const uploaded = await uploadPagesToDrive({
         pages,
         format,
         folderId: folder.id,
         fileBase: makeScanFileBase(),
       });
-      await maybeBillAlert(classification, uploaded);
-      await maybeVaultSave(classification, uploaded);
-      await afterSuccessfulFile({ id: folder.id, name: folder.name });
+      await maybeBillAlert(corrected, uploaded);
+      await maybeVaultSave(corrected, uploaded);
+      await afterSuccessfulFile(
+        { id: folder.id, name: folder.name },
+        corrected
+      );
       finish();
     } catch (e) {
       toast(e instanceof Error ? e.message : he.toasts.filingFailed);
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleManual = async (corrected: ClassificationResult) => {
+    if (classification) {
+      await applyCorrection(classification, corrected);
+    }
+    setPhase("actions");
   };
 
   if (!open) return null;
@@ -350,13 +391,14 @@ export function PostScanOrchestrator({
 
       {phase === "routing" && classification && (
         <SmartRoutingDialog
+          key={`${classification.doc_type}-${classification.vendor}`}
           open
           classification={classification}
           rule={rule}
           busy={busy}
           onFileExisting={handleFileExisting}
           onCreateNew={handleCreateNew}
-          onManual={() => setPhase("actions")}
+          onManual={handleManual}
           onClose={handleClose}
         />
       )}

@@ -1,6 +1,6 @@
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
 import { ensureDriveFolder } from "@/lib/drive/server";
-import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/classify";
+import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 import type { ClassificationResult, PersonalDocument } from "@/lib/types";
 import { docTypeHe } from "@/lib/i18n/he";
 

@@ -1,25 +1,40 @@
 "use client";
 
+import { useState } from "react";
 import {
   FolderPlus,
   FolderOpen,
   MousePointer2,
   Loader2,
 } from "lucide-react";
-import type { ClassificationResult, RoutingRule } from "@/lib/types";
+import type { ClassificationResult, DocType, RoutingRule } from "@/lib/types";
 import { Modal } from "@/components/ui/Modal";
 import { cn } from "@/lib/utils";
 import { docTypeHe, he } from "@/lib/i18n/he";
 import { ClassificationBadge } from "./ClassificationBadge";
+
+const DOC_TYPE_OPTIONS: DocType[] = [
+  "Invoice",
+  "Receipt",
+  "Bill",
+  "Contract",
+  "ID_Card",
+  "Passport",
+  "Driver_License",
+  "Car_License",
+  "Insurance",
+  "Certificate",
+  "Other",
+];
 
 type Props = {
   open: boolean;
   classification: ClassificationResult;
   rule: RoutingRule | null;
   busy?: boolean;
-  onFileExisting: () => void;
-  onCreateNew: () => void;
-  onManual: () => void;
+  onFileExisting: (corrected: ClassificationResult) => void;
+  onCreateNew: (corrected: ClassificationResult) => void;
+  onManual: (corrected: ClassificationResult) => void;
   onClose: () => void;
 };
 
@@ -33,16 +48,46 @@ export function SmartRoutingDialog({
   onManual,
   onClose,
 }: Props) {
-  const showExisting =
-    !!rule && !rule.is_autonomous && rule.confirmation_count >= 1 && rule.confirmation_count < 3;
+  const [docType, setDocType] = useState<DocType>(classification.doc_type);
+  const [vendor, setVendor] = useState(classification.vendor);
 
-  const typeLabel = docTypeHe(classification.doc_type);
+  const showExisting =
+    !!rule &&
+    !rule.is_autonomous &&
+    rule.confirmation_count >= 1 &&
+    rule.confirmation_count < 3;
+
+  const personalTypes = new Set([
+    "ID",
+    "ID_Card",
+    "Passport",
+    "Driver_License",
+    "Car_License",
+    "Insurance",
+    "Certificate",
+  ]);
+
+  const buildCorrected = (): ClassificationResult => {
+    const isPersonal = personalTypes.has(docType);
+    return {
+      ...classification,
+      doc_type: docType,
+      vendor: vendor.replace(/\s+/g, "_") || classification.vendor,
+      is_personal_doc: isPersonal,
+      is_unpaid_bill: isPersonal ? false : classification.is_unpaid_bill,
+      suggested_folder_name: isPersonal
+        ? "מסמכים אישיים"
+        : classification.suggested_folder_name,
+    };
+  };
+
+  const typeLabel = docTypeHe(docType);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={he.routing.title(typeLabel, classification.vendor)}
+      title={he.routing.title(typeLabel, vendor || classification.vendor)}
       subtitle={he.routing.confidence(
         Math.round(classification.confidence * 100),
         classification.summary
@@ -50,7 +95,55 @@ export function SmartRoutingDialog({
       wide
     >
       <div className="space-y-4" dir="rtl">
-        <ClassificationBadge classification={classification} />
+        <ClassificationBadge
+          classification={{
+            ...classification,
+            doc_type: docType,
+            vendor: vendor || classification.vendor,
+          }}
+        />
+
+        {/* User correction controls — feed ai_feedback_ledger */}
+        <div className="rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4 space-y-3">
+          <p className="text-sm font-medium text-amber-100">
+            {he.routing.correctTitle}
+          </p>
+          <p className="text-[11px] text-[var(--fg-muted)]">
+            {he.routing.correctHint}
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <label className="block text-xs space-y-1.5">
+              <span className="text-[var(--fg-muted)]">
+                {he.routing.correctDocType}
+              </span>
+              <select
+                value={docType}
+                disabled={busy}
+                onChange={(e) => setDocType(e.target.value as DocType)}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--ink)]/70 px-3 py-2.5 text-sm text-[var(--fg)] outline-none focus:border-teal-400/50"
+              >
+                {DOC_TYPE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {docTypeHe(t)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs space-y-1.5">
+              <span className="text-[var(--fg-muted)]">
+                {he.routing.correctVendor}
+              </span>
+              <input
+                type="text"
+                value={vendor}
+                disabled={busy}
+                onChange={(e) => setVendor(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--ink)]/70 px-3 py-2.5 text-sm text-[var(--fg)] outline-none focus:border-teal-400/50"
+                dir="ltr"
+              />
+            </label>
+          </div>
+        </div>
 
         {rule && !rule.is_autonomous && (
           <p className="text-xs text-[var(--fg-muted)]">
@@ -59,11 +152,10 @@ export function SmartRoutingDialog({
         )}
 
         <div className="space-y-2">
-          {/* Option A — Create new folder (primary teaching action) */}
           <button
             type="button"
             disabled={busy}
-            onClick={onCreateNew}
+            onClick={() => onCreateNew(buildCorrected())}
             className={cn(
               "w-full rounded-2xl border border-teal-400/40 bg-teal-400/10 p-4 text-start",
               "hover:border-teal-400 transition-colors disabled:opacity-50"
@@ -72,17 +164,18 @@ export function SmartRoutingDialog({
             <div className="flex items-start gap-3">
               <FolderPlus className="h-5 w-5 text-teal-300 mt-0.5 shrink-0" />
               <div className="font-medium text-sm leading-relaxed">
-                {he.routing.optionCreate(classification.suggested_folder_name)}
+                {he.routing.optionCreate(
+                  buildCorrected().suggested_folder_name
+                )}
               </div>
             </div>
           </button>
 
-          {/* Option B — Existing rule (count 1 or 2) */}
           {showExisting && (
             <button
               type="button"
               disabled={busy}
-              onClick={onFileExisting}
+              onClick={() => onFileExisting(buildCorrected())}
               className={cn(
                 "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-start",
                 "hover:border-teal-400/60 transition-colors disabled:opacity-50"
@@ -97,11 +190,10 @@ export function SmartRoutingDialog({
             </button>
           )}
 
-          {/* Option C — Manual Drive / Email */}
           <button
             type="button"
             disabled={busy}
-            onClick={onManual}
+            onClick={() => onManual(buildCorrected())}
             className={cn(
               "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-start",
               "hover:border-teal-400/60 transition-colors disabled:opacity-50"

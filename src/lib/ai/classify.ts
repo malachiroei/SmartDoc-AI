@@ -1,16 +1,21 @@
 import type { ClassificationResult, DocType } from "@/lib/types";
+import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
+import {
+  applyFeedbackOverrides,
+  formatFeedbackOverrides,
+  formatFewShotBlock,
+  loadClassificationMemory,
+  type ClassificationMemory,
+} from "@/lib/ai/memory";
 
-export const PERSONAL_VAULT_FOLDER_HE = "מסמכים אישיים";
+export { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 
-const SYSTEM_PROMPT = `You are a document classification engine for SmartDoc AI (Hebrew users in Israel).
-Analyze the scanned document image and respond with STRICTLY valid JSON only — no markdown, no commentary.
-
-Schema:
+const BASE_SCHEMA = `Schema (STRICT JSON only — no markdown):
 {
   "doc_type": "Invoice | Receipt | Bill | Contract | ID | ID_Card | Passport | Driver_License | Car_License | Insurance | Certificate | Other",
-  "vendor": "String (e.g., 'Electra', 'State_of_Israel', 'Apple_AppStore')",
-  "suggested_folder_name": "String in HEBREW (clean folder name)",
-  "summary": "String in HEBREW (2-5 words describing the doc)",
+  "vendor": "String (e.g., 'Electra', 'State_of_Israel')",
+  "suggested_folder_name": "String in HEBREW",
+  "summary": "String in HEBREW (2-5 words)",
   "confidence": 0.98,
   "is_unpaid_bill": false,
   "amount": null,
@@ -18,24 +23,53 @@ Schema:
   "is_personal_doc": true,
   "document_number": "31245678",
   "expiration_date": "YYYY-MM-DD",
-  "tags": ["דרכון", "זהות", "טיסות"]
+  "tags": ["דרכון", "זהות"]
+}`;
+
+const DOMAIN_RULES = `
+CRITICAL DOMAIN RULES:
+- If the document is an Israeli ID (תעודת זהות), Passport (דרכון), Driver's License (רישיון נהיגה), or Vehicle License (רישיון רכב / רכב), NEVER classify it as an Invoice, Bill, or Receipt. Set is_personal_doc=true and route strictly to folder "מסמכים אישיים" (Personal Vault).
+- Prefer matching known vendors and folder names from the user's vocabulary below when possible — do NOT invent generic English folders when a Hebrew folder already exists.
+- vendor: PascalCase or Underscore_Case Latin letters, no spaces.
+- suggested_folder_name: MUST be Hebrew. Personal docs → exactly "מסמכים אישיים".
+- is_unpaid_bill: true only for unpaid invoices/bills; false for receipts and personal docs.
+- Prefer specific personal types (Passport, Driver_License, etc.) over generic "ID".
+`;
+
+export function buildAdaptiveSystemPrompt(memory: ClassificationMemory): string {
+  const fewShot = formatFewShotBlock(memory.examples);
+  const overrides = formatFeedbackOverrides(memory.feedbackOverrides);
+  const vendors =
+    memory.knownVendors.length > 0
+      ? memory.knownVendors.join(", ")
+      : "(none yet)";
+  const folders =
+    memory.knownFolders.length > 0
+      ? memory.knownFolders.join(" · ")
+      : PERSONAL_VAULT_FOLDER_HE;
+
+  return `You are SmartDoc AI, a tailored document classification agent. You must learn and mimic the user's personal classification style based on their verified historical data below:
+
+VERIFIED FEW-SHOT EXAMPLES (mimic this style):
+${fewShot}
+${overrides}
+KNOWN VENDORS (prefer these spellings when matching):
+${vendors}
+
+EXISTING GOOGLE DRIVE FOLDERS (prefer these exact names when suggesting folders):
+${folders}
+
+${BASE_SCHEMA}
+${DOMAIN_RULES}`;
 }
 
-Rules:
-- vendor: use PascalCase or Underscore_Case in Latin letters, no spaces.
-- suggested_folder_name: MUST be in Hebrew.
-  - For personal docs (ID/passport/license/insurance/certificate): use exactly "מסמכים אישיים".
-  - For bills/invoices: natural standardized Hebrew folder name.
-- summary: MUST be in Hebrew.
-- confidence: number between 0 and 1.
-- is_unpaid_bill: true only for unpaid invoice/bill requiring payment; false for receipts, IDs, passports, licenses.
-- amount / due_date: for unpaid bills only; otherwise null.
-- is_personal_doc: true for ID cards, passports, driver licenses, car licenses, insurance policies, certificates, and similar personal/government identity docs.
-- document_number: extracted ID/passport/license number when visible (null if unknown).
-- expiration_date: ISO YYYY-MM-DD when visible (null if unknown).
-- tags: 2-5 short Hebrew search tags (e.g. דרכון, זהות, רכב, ביטוח).
-- Prefer specific personal types (Passport, Driver_License, etc.) over generic "ID".
-- If unsure, use doc_type "Other" and a best-effort vendor.`;
+/** Static fallback prompt (no memory) — kept for exports/tests */
+export const SYSTEM_PROMPT = buildAdaptiveSystemPrompt({
+  examples: [],
+  knownVendors: [],
+  knownFolders: [PERSONAL_VAULT_FOLDER_HE],
+  feedbackOverrides: [],
+});
 
 const DOC_TYPES: DocType[] = [
   "Invoice",
@@ -81,7 +115,6 @@ export function parseClassificationJson(raw: string): ClassificationResult {
     ? (parsed.doc_type as DocType)
     : "Other";
 
-  // Legacy "ID" → ID_Card when personal
   if (docType === "ID" && parsed.is_personal_doc !== false) {
     docType = "ID_Card";
   }
@@ -127,7 +160,11 @@ export function parseClassificationJson(raw: string): ClassificationResult {
 export async function classifyBuffer(
   buffer: Buffer,
   mimeType: string
-): Promise<{ result: ClassificationResult; provider: VisionProvider | "demo" }> {
+): Promise<{
+  result: ClassificationResult;
+  provider: VisionProvider | "demo";
+  memoryUsed?: number;
+}> {
   const base64 = buffer.toString("base64");
   const dataUrl = `data:${mimeType};base64,${base64}`;
   return classifyDocument(dataUrl);
@@ -144,17 +181,25 @@ export type VisionProvider = "openai" | "gemini" | "anthropic";
 export function resolveProvider(): VisionProvider | null {
   const preferred = (process.env.AI_PROVIDER || "").toLowerCase();
   if (preferred === "openai" && process.env.OPENAI_API_KEY) return "openai";
-  if (preferred === "gemini" && (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY))
+  if (
+    preferred === "gemini" &&
+    (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY)
+  )
     return "gemini";
-  if (preferred === "anthropic" && process.env.ANTHROPIC_API_KEY) return "anthropic";
+  if (preferred === "anthropic" && process.env.ANTHROPIC_API_KEY)
+    return "anthropic";
 
   if (process.env.OPENAI_API_KEY) return "openai";
-  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY) return "gemini";
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY)
+    return "gemini";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   return null;
 }
 
-async function classifyOpenAI(imageDataUrl: string): Promise<ClassificationResult> {
+async function classifyOpenAI(
+  imageDataUrl: string,
+  systemPrompt: string
+): Promise<ClassificationResult> {
   const { mime, base64 } = dataUrlParts(imageDataUrl);
   const model = process.env.OPENAI_VISION_MODEL || "gpt-4o";
 
@@ -169,13 +214,13 @@ async function classifyOpenAI(imageDataUrl: string): Promise<ClassificationResul
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Classify this scanned document. Return JSON only.",
+              text: "Classify this scanned document. Return JSON only. Obey few-shot examples and user overrides.",
             },
             {
               type: "image_url",
@@ -201,7 +246,10 @@ async function classifyOpenAI(imageDataUrl: string): Promise<ClassificationResul
   return parseClassificationJson(content);
 }
 
-async function classifyGemini(imageDataUrl: string): Promise<ClassificationResult> {
+async function classifyGemini(
+  imageDataUrl: string,
+  systemPrompt: string
+): Promise<ClassificationResult> {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
   const model = process.env.GEMINI_VISION_MODEL || "gemini-1.5-flash";
   const { mime, base64 } = dataUrlParts(imageDataUrl);
@@ -215,7 +263,9 @@ async function classifyGemini(imageDataUrl: string): Promise<ClassificationResul
         contents: [
           {
             parts: [
-              { text: `${SYSTEM_PROMPT}\n\nClassify this scanned document. Return JSON only.` },
+              {
+                text: `${systemPrompt}\n\nClassify this scanned document. Return JSON only.`,
+              },
               { inline_data: { mime_type: mime, data: base64 } },
             ],
           },
@@ -239,9 +289,13 @@ async function classifyGemini(imageDataUrl: string): Promise<ClassificationResul
   return parseClassificationJson(content);
 }
 
-async function classifyAnthropic(imageDataUrl: string): Promise<ClassificationResult> {
+async function classifyAnthropic(
+  imageDataUrl: string,
+  systemPrompt: string
+): Promise<ClassificationResult> {
   const { mime, base64 } = dataUrlParts(imageDataUrl);
-  const model = process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
+  const model =
+    process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -254,7 +308,7 @@ async function classifyAnthropic(imageDataUrl: string): Promise<ClassificationRe
       model,
       max_tokens: 768,
       temperature: 0.1,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [
         {
           role: "user",
@@ -265,7 +319,7 @@ async function classifyAnthropic(imageDataUrl: string): Promise<ClassificationRe
             },
             {
               type: "text",
-              text: "Classify this scanned document. Return JSON only.",
+              text: "Classify this scanned document. Return JSON only. Obey few-shot examples and user overrides.",
             },
           ],
         },
@@ -288,34 +342,92 @@ async function classifyAnthropic(imageDataUrl: string): Promise<ClassificationRe
 
 export async function classifyDocument(
   imageDataUrl: string
-): Promise<{ result: ClassificationResult; provider: VisionProvider | "demo" }> {
+): Promise<{
+  result: ClassificationResult;
+  provider: VisionProvider | "demo";
+  memoryUsed: number;
+  adaptivePromptPreview?: string;
+}> {
+  const memory = await loadClassificationMemory();
+  const systemPrompt = buildAdaptiveSystemPrompt(memory);
+  const memoryUsed = memory.examples.length;
+
+  console.info(
+    `[ai/classify] Adaptive few-shot: ${memoryUsed} examples, ${memory.feedbackOverrides.length} overrides, ${memory.knownFolders.length} folders`
+  );
+
   const provider = resolveProvider();
 
   if (!provider) {
+    // Demo: if we have personal-doc feedback/examples, bias demo result
+    const personalEx = memory.examples.find((e) =>
+      ["Passport", "Driver_License", "ID_Card", "Car_License"].includes(
+        e.doc_type
+      )
+    );
+    if (personalEx) {
+      return {
+        provider: "demo",
+        memoryUsed,
+        adaptivePromptPreview: systemPrompt.slice(0, 500),
+        result: applyFeedbackOverrides(
+          {
+            doc_type: personalEx.doc_type as DocType,
+            vendor: personalEx.vendor,
+            suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
+            summary: personalEx.summary || "מסמך אישי",
+            confidence: 0.9,
+            is_unpaid_bill: false,
+            is_personal_doc: true,
+            tags: [],
+          },
+          memory.feedbackOverrides
+        ),
+      };
+    }
+
     return {
       provider: "demo",
-      result: {
-        doc_type: "Invoice",
-        vendor: "Demo_Vendor",
-        suggested_folder_name: "חשבוניות דמו 2026",
-        summary: "חשבונית דמו",
-        confidence: 0.85,
-        is_unpaid_bill: true,
-        amount: 154.5,
-        due_date: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
-        is_personal_doc: false,
-        tags: [],
-      },
+      memoryUsed,
+      adaptivePromptPreview: systemPrompt.slice(0, 500),
+      result: applyFeedbackOverrides(
+        {
+          doc_type: "Invoice",
+          vendor: memory.knownVendors[0] || "Demo_Vendor",
+          suggested_folder_name:
+            memory.examples[0]?.folder || "חשבוניות דמו 2026",
+          summary: "חשבונית דמו",
+          confidence: 0.85,
+          is_unpaid_bill: true,
+          amount: 154.5,
+          due_date: new Date(Date.now() + 14 * 86400000)
+            .toISOString()
+            .slice(0, 10),
+          is_personal_doc: false,
+          tags: [],
+        },
+        memory.feedbackOverrides
+      ),
     };
   }
 
+  let result: ClassificationResult;
   if (provider === "openai") {
-    return { provider, result: await classifyOpenAI(imageDataUrl) };
+    result = await classifyOpenAI(imageDataUrl, systemPrompt);
+  } else if (provider === "gemini") {
+    result = await classifyGemini(imageDataUrl, systemPrompt);
+  } else {
+    result = await classifyAnthropic(imageDataUrl, systemPrompt);
   }
-  if (provider === "gemini") {
-    return { provider, result: await classifyGemini(imageDataUrl) };
-  }
-  return { provider, result: await classifyAnthropic(imageDataUrl) };
+
+  result = applyFeedbackOverrides(result, memory.feedbackOverrides);
+
+  return {
+    provider,
+    result,
+    memoryUsed,
+    adaptivePromptPreview: systemPrompt.slice(0, 800),
+  };
 }
 
-export { SYSTEM_PROMPT, PERSONAL_TYPES };
+export { PERSONAL_TYPES };

@@ -1,12 +1,12 @@
-import { getGoogleAccessToken } from "@/lib/google/token";
+import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
+import { maybeCreateBillAlert, PENDING_BILLS_FOLDER_HE } from "@/lib/bills/alerts";
+import { maybeCreatePersonalDocument } from "@/lib/vault/documents";
+import { docTypeHe } from "@/lib/i18n/he";
+import type { ClassificationResult, RoutingRule } from "@/lib/types";
 import { classifyBuffer } from "@/lib/ai/classify";
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
 import { uploadBufferToDrive, ensureDriveFolder } from "@/lib/drive/server";
-import { maybeCreateBillAlert, PENDING_BILLS_FOLDER_HE } from "@/lib/bills/alerts";
-import { maybeCreatePersonalDocument } from "@/lib/vault/documents";
-import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/classify";
-import { docTypeHe } from "@/lib/i18n/he";
-import type { ClassificationResult, RoutingRule } from "@/lib/types";
+import { getGoogleAccessToken } from "@/lib/google/token";
 
 const GMAIL_QUERY =
   'is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR חשבון) has:attachment';

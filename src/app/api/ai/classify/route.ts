@@ -8,14 +8,14 @@ export const maxDuration = 60;
 /**
  * POST /api/ai/classify
  * Body: { imageBase64: string }
+ * Adaptive few-shot classification using Supabase memory.
  */
 export async function POST(request: Request) {
   try {
-    // Log Supabase config status (classify does not query DB, but ops teams expect it here)
     const env = checkSupabaseEnv();
     if (!env.ok) {
       console.warn(
-        "[ai/classify] Supabase env missing (classification still runs):",
+        "[ai/classify] Supabase env missing (few-shot memory skipped):",
         env.missing.join(", ")
       );
     }
@@ -43,17 +43,21 @@ export async function POST(request: Request) {
       ? imageBase64
       : `data:image/jpeg;base64,${imageBase64}`;
 
-    const { result, provider } = await classifyDocument(payload);
+    const { result, provider, memoryUsed, adaptivePromptPreview } =
+      await classifyDocument(payload);
 
     return NextResponse.json({
       ...result,
       provider,
       demo: provider === "demo",
+      memoryUsed,
+      adaptive: memoryUsed > 0,
+      // Debug preview (first ~800 chars) — helps verify few-shot injection
+      promptPreview: adaptivePromptPreview,
     });
   } catch (e) {
     console.error("[ai/classify]", e);
-    const message =
-      e instanceof Error ? e.message : "הסיווג נכשל";
+    const message = e instanceof Error ? e.message : "הסיווג נכשל";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

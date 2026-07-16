@@ -52,7 +52,7 @@ export const he = {
   },
   classify: {
     analyzing: "מנתח את המסמך…",
-    analyzingSub: "סיווג AI וחיפוש בזיכרון הלמידה",
+    analyzingSub: "סיווג AI מותאם · few-shot מזיכרון האישורים שלך",
     failed: "הסיווג נכשל",
     lookupFailed: "חיפוש הכלל נכשל",
   },
@@ -67,6 +67,14 @@ export const he = {
     optionExisting: (name: string) => `תיוק בתיקייה הקיימת: ${name}`,
     optionManual: "בחירת תיקייה ידנית / שליחה במייל",
     filing: "מתייק…",
+    correctTitle: "תיקון סיווג AI (מלמד את המערכת)",
+    correctDocType: "סוג מסמך",
+    correctVendor: "ספק / מנפיק",
+    correctHint: "שינוי כאן נשמר ללמידת few-shot בסריקות הבאות",
+  },
+  feedback: {
+    saveError: "שמירת תיקון הסיווג נכשלה",
+    saved: "התיקון נשמר — SmartDoc ילמד ממנו בפעם הבאה",
   },
   toasts: {
     autoFiled: (docType: string, vendor: string, folder: string) =>
