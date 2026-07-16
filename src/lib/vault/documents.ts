@@ -71,7 +71,7 @@ export async function createPersonalDocument(opts: {
       doc_type: opts.doc_type,
       title,
       document_number: opts.document_number ?? null,
-      expiration_date: opts.expiration_date ?? "2032-01-01",
+      expiration_date: opts.expiration_date ?? null,
       file_id: opts.file_id,
       file_url: fileUrl,
       summary,
@@ -86,7 +86,18 @@ export async function createPersonalDocument(opts: {
 }
 
 export function buildVaultTitle(classification: ClassificationResult): string {
-  const clean = sanitizePersonalClassification(classification);
+  const clean = sanitizePersonalClassification(classification, null, {
+    fillDefaults: false,
+  });
+  const summary = (clean.summary || "").trim();
+  // Prefer OCR Hebrew summary when it includes a real name / detail
+  if (
+    summary &&
+    summary.length >= 4 &&
+    !/חשבונית|invoice|דמו|נתוני/i.test(summary)
+  ) {
+    return summary;
+  }
   return (
     TITLE_BY_TYPE[clean.doc_type] ||
     `${docTypeHe(clean.doc_type)} - מדינת ישראל`
@@ -103,7 +114,9 @@ export async function maybeCreatePersonalDocument(
     return null;
   }
 
-  const clean = sanitizePersonalClassification(classification);
+  const clean = sanitizePersonalClassification(classification, null, {
+    fillDefaults: false,
+  });
 
   try {
     await ensureDriveFolder(PERSONAL_VAULT_FOLDER_HE);
@@ -123,7 +136,7 @@ export async function maybeCreatePersonalDocument(
       doc_type: clean.doc_type,
       title: buildVaultTitle(clean),
       document_number: clean.document_number ?? null,
-      expiration_date: clean.expiration_date ?? "2032-01-01",
+      expiration_date: clean.expiration_date ?? null,
       file_id: driveFile.id,
       file_url: fileUrl,
       summary: clean.summary,

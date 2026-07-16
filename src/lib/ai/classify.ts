@@ -49,13 +49,29 @@ const BASE_SCHEMA = `Schema (STRICT JSON only — no markdown):
 
 const DOMAIN_RULES = `
 CRITICAL DOMAIN RULES:
-- If the document is an Israeli ID (תעודת זהות), Passport (דרכון), Driver's License (רישיון נהיגה), or Vehicle License (רישיון רכב / רכב), NEVER classify it as an Invoice, Bill, or Receipt. Set is_personal_doc=true and route strictly to folder "מסמכים אישיים" (Personal Vault).
-- Prefer matching known vendors and folder names from the user's vocabulary below when possible — do NOT invent generic English folders when a Hebrew folder already exists.
-- vendor: PascalCase or Underscore_Case Latin letters, no spaces.
-- suggested_folder_name: MUST be Hebrew. Personal docs → exactly "מסמכים אישיים".
-- is_unpaid_bill: true only for unpaid invoices/bills; false for receipts and personal docs.
-- Prefer specific personal types (Passport, Driver_License, etc.) over generic "ID".
+- Look at the image carefully. If you see an Israeli Driver's License (רישיון נהיגה), Israeli ID (תעודת זהות), Passport (דרכון), or Vehicle License (רישיון רכב):
+  * Extract the REAL full name (Hebrew if visible), REAL document/ID number, and REAL expiration date from the image.
+  * Put the name into summary, e.g. "רישיון נהיגה - רועי מלאכי" or "דרכון - יוסי כהן".
+  * Set document_number to the exact number printed on the card.
+  * Set expiration_date to YYYY-MM-DD from the card (or null if unreadable).
+  * Set is_personal_doc: true, is_unpaid_bill: false, amount: null, due_date: null.
+  * Set suggested_folder_name exactly to "מסמכים אישיים".
+  * NEVER classify these as Invoice, Bill, or Receipt.
+- Prefer matching known vendors and folder names from the user's vocabulary below when possible.
+- vendor: PascalCase or Underscore_Case Latin letters, no spaces (personal docs → State_of_Israel).
+- summary: MUST be in Hebrew; for personal docs include the person's name when readable.
+- Prefer specific personal types (Passport, Driver_License, ID_Card) over generic "ID".
 `;
+
+const USER_VISION_INSTRUCTION = `Look at this image carefully. Classify the document and return STRICT JSON only.
+
+If this is an Israeli Driver's License (רישיון נהיגה), Israeli ID (תעודת זהות), or Passport (דרכון):
+- Extract the REAL name, REAL ID/document number, and REAL expiration date from the image.
+- Set is_personal_doc: true, is_unpaid_bill: false.
+- Route to suggested_folder_name "מסמכים אישיים".
+- summary should be Hebrew and include the person's name when visible.
+
+Obey few-shot examples and user overrides from the system prompt.`;
 
 export function buildAdaptiveSystemPrompt(memory: ClassificationMemory): string {
   const fewShot = formatFewShotBlock(memory.examples);
@@ -205,18 +221,18 @@ export type VisionProvider = "openai" | "gemini" | "anthropic";
 
 export function resolveProvider(): VisionProvider | null {
   const preferred = (process.env.AI_PROVIDER || "").toLowerCase();
+  const geminiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_AI_API_KEY ||
+    process.env.GOOGLE_API_KEY;
+
   if (preferred === "openai" && process.env.OPENAI_API_KEY) return "openai";
-  if (
-    preferred === "gemini" &&
-    (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY)
-  )
-    return "gemini";
+  if (preferred === "gemini" && geminiKey) return "gemini";
   if (preferred === "anthropic" && process.env.ANTHROPIC_API_KEY)
     return "anthropic";
 
   if (process.env.OPENAI_API_KEY) return "openai";
-  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY)
-    return "gemini";
+  if (geminiKey) return "gemini";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   return null;
 }
@@ -245,7 +261,7 @@ async function classifyOpenAI(
           content: [
             {
               type: "text",
-              text: "Classify this scanned document. Return JSON only. Obey few-shot examples and user overrides.",
+              text: USER_VISION_INSTRUCTION,
             },
             {
               type: "image_url",
@@ -275,43 +291,85 @@ async function classifyGemini(
   imageDataUrl: string,
   systemPrompt: string
 ): Promise<ClassificationResult> {
-  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
-  const model = process.env.GEMINI_VISION_MODEL || "gemini-1.5-flash";
+  const key =
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_AI_API_KEY ||
+    process.env.GOOGLE_API_KEY;
+  if (!key) throw new Error("Missing GEMINI_API_KEY");
+
+  const modelName =
+    process.env.GEMINI_VISION_MODEL ||
+    process.env.GOOGLE_GEMINI_MODEL ||
+    "gemini-2.0-flash";
   const { mime, base64 } = dataUrlParts(imageDataUrl);
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `${systemPrompt}\n\nClassify this scanned document. Return JSON only.`,
-              },
-              { inline_data: { mime_type: mime, data: base64 } },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
+  // Prefer official SDK; fall back to REST if needed
+  try {
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      systemInstruction: systemPrompt,
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const result = await model.generateContent([
+      { text: USER_VISION_INSTRUCTION },
+      {
+        inlineData: {
+          mimeType: mime || "image/jpeg",
+          data: base64,
         },
-      }),
+      },
+    ]);
+
+    const content = result.response.text();
+    if (!content) throw new Error("Empty Gemini response");
+    console.info(`[ai/classify] Gemini SDK ok model=${modelName}`);
+    return parseClassificationJson(content);
+  } catch (sdkErr) {
+    console.warn(
+      "[ai/classify] Gemini SDK failed, trying REST:",
+      sdkErr instanceof Error ? sdkErr.message : sdkErr
+    );
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: USER_VISION_INSTRUCTION },
+                { inline_data: { mime_type: mime, data: base64 } },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: "application/json",
+          },
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Gemini error: ${err}`);
     }
-  );
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini error: ${err}`);
+    const data = await res.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) throw new Error("Empty Gemini response");
+    return parseClassificationJson(content);
   }
-
-  const data = await res.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!content) throw new Error("Empty Gemini response");
-  return parseClassificationJson(content);
 }
 
 async function classifyAnthropic(
@@ -344,7 +402,7 @@ async function classifyAnthropic(
             },
             {
               type: "text",
-              text: "Classify this scanned document. Return JSON only. Obey few-shot examples and user overrides.",
+              text: USER_VISION_INSTRUCTION,
             },
           ],
         },
@@ -463,20 +521,25 @@ export async function classifyDocument(
     result = await classifyAnthropic(imageDataUrl, systemPrompt);
   }
 
-  // Filename / UI toggle wins over mistaken invoice classification
+  // Live LLM — preserve OCR fields; never invent demo ID/expiry
   if (personalHint || forcePersonal) {
     result = sanitizePersonalClassification(
-      result,
-      opts?.hint || opts?.fileName || result.doc_type
+      { ...result, is_personal_doc: true },
+      opts?.hint || opts?.fileName || result.doc_type,
+      { fillDefaults: false }
     );
   } else {
     result = applyFeedbackOverrides(result, memory.feedbackOverrides);
+    if (result.is_personal_doc || isPersonalDocType(result.doc_type)) {
+      result = sanitizePersonalClassification(result, result.doc_type, {
+        fillDefaults: false,
+      });
+    }
   }
 
-  // Never let invoice feedback override a personal classification
-  if (result.is_personal_doc || isPersonalDocType(result.doc_type)) {
-    result = sanitizePersonalClassification(result, result.doc_type);
-  }
+  console.info(
+    `[ai/classify] provider=${provider} doc_type=${result.doc_type} personal=${result.is_personal_doc} number=${result.document_number ?? "—"}`
+  );
 
   return {
     provider,

@@ -47,7 +47,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ skipped: true });
     }
 
-    const classification = sanitizePersonalClassification(raw);
+    const classification = sanitizePersonalClassification(raw, null, {
+      fillDefaults: false,
+    });
 
     // Prefer real image preview (data URL) so Vault cards can show a thumbnail
     const fileUrl = previewUrl?.startsWith("data:")
@@ -62,7 +64,7 @@ export async function POST(request: Request) {
       doc_type: classification.doc_type,
       title: buildVaultTitle(classification),
       document_number: classification.document_number ?? null,
-      expiration_date: classification.expiration_date ?? "2032-01-01",
+      expiration_date: classification.expiration_date ?? null,
       file_id: driveFileId,
       file_url: fileUrl,
       summary: classification.summary,

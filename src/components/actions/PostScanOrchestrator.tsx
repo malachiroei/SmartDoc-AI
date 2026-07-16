@@ -121,7 +121,10 @@ export function PostScanOrchestrator({
           tags: classifyData.tags,
         };
         if (result.is_personal_doc || forcePersonal) {
-          Object.assign(result, sanitizePersonalClassification(result));
+          Object.assign(
+            result,
+            sanitizePersonalClassification(result, null, { fillDefaults: false })
+          );
         }
         setClassification(result);
 
@@ -272,7 +275,7 @@ export function PostScanOrchestrator({
       ["Driver_License", "ID_Card", "Passport", "Car_License", "Insurance", "Certificate", "ID"].includes(
         corrected.doc_type
       )
-        ? sanitizePersonalClassification(corrected)
+        ? sanitizePersonalClassification(corrected, null, { fillDefaults: false })
         : corrected;
     setClassification(cleaned);
     try {
