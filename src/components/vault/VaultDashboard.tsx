@@ -5,19 +5,23 @@ import Link from "next/link";
 import { Loader2, Search, Shield, ScanLine } from "lucide-react";
 import type { PersonalDocument, RetrieveDocumentCard, RetrieveResult } from "@/lib/types";
 import {
+  deleteVaultDocument,
   fetchVaultDocuments,
   retrieveFromAgent,
 } from "@/lib/vault/client";
 import { he } from "@/lib/i18n/he";
 import { Button } from "@/components/ui/Button";
 import { VaultDocumentCard } from "./VaultDocumentCard";
+import { VaultPreviewModal } from "./VaultPreviewModal";
 
 type Props = {
   refreshKey?: number;
 };
 
 function toCard(doc: PersonalDocument): RetrieveDocumentCard {
-  const leaky = /חשבונית|invoice|דמו/i.test(doc.title) || /חשבונית|invoice/i.test(doc.summary ?? "");
+  const leaky =
+    /חשבונית|invoice|דמו/i.test(doc.title) ||
+    /חשבונית|invoice/i.test(doc.summary ?? "");
   const title =
     leaky || !doc.title
       ? ({
@@ -68,6 +72,8 @@ export function VaultDashboard({ refreshKey }: Props) {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<RetrieveResult | null>(null);
+  const [preview, setPreview] = useState<RetrieveDocumentCard | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +117,33 @@ export function VaultDashboard({ refreshKey }: Props) {
       setSearching(false);
     }
   };
+
+  const handleView = useCallback((doc: RetrieveDocumentCard) => {
+    setPreview(doc);
+  }, []);
+
+  const handleDelete = useCallback(async (doc: RetrieveDocumentCard) => {
+    if (doc.source === "bill") return;
+    const prev = docs;
+    setDeletingId(doc.id);
+    // Optimistic UI — remove immediately
+    setDocs((d) => d.filter((x) => x.id !== doc.id));
+    setResult((r) =>
+      r
+        ? { ...r, documents: r.documents.filter((x) => x.id !== doc.id) }
+        : r
+    );
+    if (preview?.id === doc.id) setPreview(null);
+
+    try {
+      await deleteVaultDocument(doc.id);
+    } catch (e) {
+      setDocs(prev);
+      setError(e instanceof Error ? e.message : he.vault.deleteError);
+    } finally {
+      setDeletingId(null);
+    }
+  }, [docs, preview?.id]);
 
   return (
     <div className="space-y-8" dir="rtl">
@@ -173,7 +206,13 @@ export function VaultDashboard({ refreshKey }: Props) {
             {result.documents.length > 0 && (
               <div className="grid sm:grid-cols-2 gap-3">
                 {result.documents.map((d) => (
-                  <VaultDocumentCard key={`${d.source}-${d.id}`} document={d} />
+                  <VaultDocumentCard
+                    key={`${d.source}-${d.id}`}
+                    document={d}
+                    onView={handleView}
+                    onDelete={d.source === "vault" ? handleDelete : undefined}
+                    deleting={deletingId === d.id}
+                  />
                 ))}
               </div>
             )}
@@ -218,13 +257,25 @@ export function VaultDashboard({ refreshKey }: Props) {
                 </h4>
                 <div className="grid sm:grid-cols-2 gap-3">
                   {items.map((doc) => (
-                    <VaultDocumentCard key={doc.id} document={toCard(doc)} />
+                    <VaultDocumentCard
+                      key={doc.id}
+                      document={toCard(doc)}
+                      onView={handleView}
+                      onDelete={handleDelete}
+                      deleting={deletingId === doc.id}
+                    />
                   ))}
                 </div>
               </div>
             );
           })}
       </div>
+
+      <VaultPreviewModal
+        document={preview}
+        open={Boolean(preview)}
+        onClose={() => setPreview(null)}
+      />
     </div>
   );
 }

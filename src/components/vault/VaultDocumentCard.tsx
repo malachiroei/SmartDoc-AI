@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Download, AlertTriangle, IdCard, FileText } from "lucide-react";
+import { Download, AlertTriangle, IdCard, FileText, Trash2, Eye } from "lucide-react";
 import type { RetrieveDocumentCard } from "@/lib/types";
 import { docTypeHe, he } from "@/lib/i18n/he";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,9 @@ import { cn } from "@/lib/utils";
 type Props = {
   document: RetrieveDocumentCard;
   className?: string;
+  onView?: (doc: RetrieveDocumentCard) => void;
+  onDelete?: (doc: RetrieveDocumentCard) => void;
+  deleting?: boolean;
 };
 
 function formatExpiry(doc: RetrieveDocumentCard): string {
@@ -45,23 +48,52 @@ function downloadUrl(doc: RetrieveDocumentCard): string | null {
   return doc.file_url;
 }
 
-const linkBtn =
-  "inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg font-medium bg-[var(--surface-2)] text-[var(--fg)] border border-[var(--border)] hover:bg-[var(--surface-3)] transition-colors";
+function downloadFileName(doc: RetrieveDocumentCard): string {
+  const base = (doc.title || "document").replace(/[\\/:*?"<>|]+/g, "_").trim();
+  if (doc.file_url?.startsWith("data:image/png")) return `${base}.png`;
+  if (doc.file_url?.startsWith("data:image/webp")) return `${base}.webp`;
+  if (doc.file_url?.startsWith("data:image/")) return `${base}.jpg`;
+  return `${base}.jpg`;
+}
 
-export function VaultDocumentCard({ document: doc, className }: Props) {
+const linkBtn =
+  "inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg font-medium bg-[var(--surface-2)] text-[var(--fg)] border border-[var(--border)] hover:bg-[var(--surface-3)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+
+export function VaultDocumentCard({
+  document: doc,
+  className,
+  onView,
+  onDelete,
+  deleting,
+}: Props) {
   const typeLabel = docTypeHe(doc.doc_type);
   const href = viewUrl(doc);
   const dlHref = downloadUrl(doc);
   const showImage = isImageUrl(doc.file_url);
+  const canDelete = Boolean(onDelete) && doc.source !== "bill";
 
   return (
     <div
       className={cn(
-        "rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden flex flex-col",
+        "relative rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden flex flex-col",
         className
       )}
       dir="rtl"
     >
+      {canDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete?.(doc)}
+          disabled={deleting}
+          title={he.vault.deleteDoc}
+          aria-label={he.vault.deleteDoc}
+          className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 rounded-lg border border-red-400/40 bg-red-500/20 px-2 py-1 text-xs font-medium text-red-100 backdrop-blur hover:bg-red-500/35 transition-colors disabled:opacity-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          {deleting ? he.vault.deleting : he.vault.deleteDoc}
+        </button>
+      )}
+
       {/* Thumbnail / fallback */}
       <div className="relative aspect-[4/3] bg-[var(--ink)]/60 border-b border-[var(--border)]">
         {showImage && doc.file_url ? (
@@ -121,18 +153,16 @@ export function VaultDocumentCard({ document: doc, className }: Props) {
           </p>
         </div>
 
-        {/* Always show actions */}
         <div className="flex flex-wrap gap-2 pt-1">
           {href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
               className={linkBtn}
+              onClick={() => onView?.(doc)}
             >
               {he.vault.viewDoc}
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+              <Eye className="h-3.5 w-3.5" />
+            </button>
           ) : (
             <span className={cn(linkBtn, "opacity-40 cursor-not-allowed")}>
               {he.vault.viewDoc}
@@ -141,9 +171,13 @@ export function VaultDocumentCard({ document: doc, className }: Props) {
           {dlHref ? (
             <a
               href={dlHref}
-              target="_blank"
+              download={
+                doc.file_url?.startsWith("data:")
+                  ? downloadFileName(doc)
+                  : undefined
+              }
+              target={doc.file_url?.startsWith("data:") ? undefined : "_blank"}
               rel="noopener noreferrer"
-              download={doc.file_url?.startsWith("data:") ? `${doc.title}.jpg` : undefined}
               className={linkBtn}
             >
               {he.vault.downloadDoc}

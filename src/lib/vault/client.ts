@@ -48,3 +48,10 @@ export async function retrieveFromAgent(query: string): Promise<RetrieveResult> 
     networkError: he.vault.retrieveError,
   });
 }
+
+export async function deleteVaultDocument(id: string): Promise<void> {
+  await fetchJsonOk<{ ok: boolean }>(`/api/vault/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    networkError: he.vault.deleteError,
+  });
+}

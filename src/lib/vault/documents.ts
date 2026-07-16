@@ -148,6 +148,21 @@ export async function maybeCreatePersonalDocument(
   }
 }
 
+export async function deletePersonalDocument(id: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from("personal_documents")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    if (isMissingTable(error)) {
+      throw new Error("טבלת הכספת חסרה — הריצו את מיגרציית Supabase");
+    }
+    throw new Error(mapSupabaseError(error));
+  }
+}
+
 export async function searchPersonalDocuments(
   keywords: string[]
 ): Promise<PersonalDocument[]> {
