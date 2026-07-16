@@ -82,12 +82,20 @@ export function PostScanOrchestrator({
 
       try {
         const imageBase64 = pages[0].processedDataUrl;
+        const fileNameHint = pages
+          .map((p) => p.sourceFileName)
+          .filter(Boolean)
+          .join(" ");
         const classifyData = await fetchJsonOk<ClassificationResult & { error?: string }>(
           "/api/ai/classify",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64 }),
+            body: JSON.stringify({
+              imageBase64,
+              fileName: fileNameHint || undefined,
+              hint: fileNameHint || undefined,
+            }),
             networkError: he.classify.failed,
           }
         );
@@ -156,8 +164,8 @@ export function PostScanOrchestrator({
         if (cancelled) return;
         setRule(found);
 
-        // Autonomous branch — file silently
-        if (found?.is_autonomous) {
+        // Autonomous branch — never for personal vault docs
+        if (found?.is_autonomous && !result.is_personal_doc) {
           setBusy(true);
           const uploaded = await uploadPagesToDrive({
             pages,

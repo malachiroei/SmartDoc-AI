@@ -50,6 +50,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draftOriginal, setDraftOriginal] = useState<string | null>(null);
   const [draftCorners, setDraftCorners] = useState<Quad | null>(null);
+  const [draftFileName, setDraftFileName] = useState<string | undefined>();
   const [filter, setFilter] = useState<ScanFilter>("magic");
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -79,6 +80,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
   const handleCapture = (dataUrl: string, corners: Quad) => {
     setDraftOriginal(dataUrl);
     setDraftCorners(corners);
+    setDraftFileName(undefined);
     setMode("review");
   };
 
@@ -105,6 +107,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
             filter,
             corners,
             createdAt: Date.now(),
+            sourceFileName: file.name,
           });
         }
 
@@ -125,6 +128,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
       const img = await loadImage(dataUrl);
       setDraftOriginal(dataUrl);
       setDraftCorners(defaultQuad(img.naturalWidth, img.naturalHeight, 0.06));
+      setDraftFileName(file.name);
       setMode("review");
     } catch (e) {
       console.error(e);
@@ -148,11 +152,13 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
         filter,
         corners: draftCorners,
         createdAt: Date.now(),
+        sourceFileName: draftFileName,
       };
       setPages((prev) => [...prev, page]);
       setActiveId(page.id);
       setDraftOriginal(null);
       setDraftCorners(null);
+      setDraftFileName(undefined);
       setPreview(null);
       setMode("camera");
     } finally {

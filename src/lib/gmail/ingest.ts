@@ -198,7 +198,9 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
         continue;
       }
 
-      const { result } = await classifyBuffer(buffer, att.mimeType);
+      const { result } = await classifyBuffer(buffer, att.mimeType, {
+        fileName: att.filename,
+      });
       const rule = await lookupRule(result.vendor);
 
       let folderId: string | undefined;
@@ -283,7 +285,7 @@ export async function classifyAndProcessAttachment(
   billAlert: Awaited<ReturnType<typeof maybeCreateBillAlert>>;
   vaultDoc: Awaited<ReturnType<typeof maybeCreatePersonalDocument>>;
 }> {
-  const { result } = await classifyBuffer(buffer, mimeType);
+  const { result } = await classifyBuffer(buffer, mimeType, { fileName });
 
   let folderId: string | undefined;
   if (result.is_personal_doc) {

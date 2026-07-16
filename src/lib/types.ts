@@ -11,6 +11,8 @@ export type ScannedPage = {
   filter: ScanFilter;
   corners: Quad | null;
   createdAt: number;
+  /** Original upload filename when available (used for demo personal-doc detection) */
+  sourceFileName?: string;
 };
 
 export type ExportFormat = "pdf" | "jpg";

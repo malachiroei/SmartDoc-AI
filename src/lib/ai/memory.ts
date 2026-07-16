@@ -93,7 +93,11 @@ async function fetchRecentPersonalDocs(): Promise<FewShotExample[]> {
 async function fetchFeedbackLedger(): Promise<FewShotExample[]> {
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
+
+    // Prefer corrected_folder; fall back if column missing (older schemas)
+    let rows: Array<Record<string, unknown>> | null = null;
+
+    const primary = await supabase
       .from("ai_feedback_ledger")
       .select(
         "corrected_doc_type, corrected_vendor, corrected_folder, corrected_summary, is_personal_doc, priority, created_at"
@@ -101,23 +105,63 @@ async function fetchFeedbackLedger(): Promise<FewShotExample[]> {
       .order("created_at", { ascending: false })
       .limit(10);
 
-    if (error) {
-      if (isMissingTable(error, "ai_feedback_ledger")) return [];
-      console.warn("[ai/memory] ai_feedback_ledger:", error.message);
-      return [];
+    if (primary.error) {
+      if (isMissingTable(primary.error, "ai_feedback_ledger")) return [];
+
+      const missingFolderCol =
+        /corrected_folder/i.test(primary.error.message) &&
+        /does not exist/i.test(primary.error.message);
+
+      if (missingFolderCol) {
+        const fallback = await supabase
+          .from("ai_feedback_ledger")
+          .select(
+            "corrected_doc_type, corrected_vendor, target_folder, corrected_summary, is_personal_doc, priority, created_at"
+          )
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (fallback.error) {
+          // Last resort: minimal columns
+          const minimal = await supabase
+            .from("ai_feedback_ledger")
+            .select(
+              "corrected_doc_type, corrected_vendor, corrected_summary, is_personal_doc, priority, created_at"
+            )
+            .order("created_at", { ascending: false })
+            .limit(10);
+          if (minimal.error) {
+            console.warn("[ai/memory] ai_feedback_ledger:", minimal.error.message);
+            return [];
+          }
+          rows = (minimal.data ?? []) as Array<Record<string, unknown>>;
+        } else {
+          rows = (fallback.data ?? []) as Array<Record<string, unknown>>;
+        }
+      } else {
+        console.warn("[ai/memory] ai_feedback_ledger:", primary.error.message);
+        return [];
+      }
+    } else {
+      rows = (primary.data ?? []) as Array<Record<string, unknown>>;
     }
 
-    return (data ?? []).map((f) => ({
-      source: "feedback" as const,
-      vendor: String(f.corrected_vendor),
-      doc_type: String(f.corrected_doc_type),
-      folder: f.is_personal_doc
-        ? PERSONAL_VAULT_FOLDER_HE
-        : String(f.corrected_folder || "Unknown"),
-      summary: f.corrected_summary,
-      priority: Number(f.priority) || 10,
-      created_at: String(f.created_at),
-    }));
+    return (rows ?? []).map((f) => {
+      const isPersonal = Boolean(f.is_personal_doc);
+      const folderRaw =
+        f.corrected_folder ?? f.target_folder ?? f.folder ?? null;
+      return {
+        source: "feedback" as const,
+        vendor: String(f.corrected_vendor ?? "Unknown"),
+        doc_type: String(f.corrected_doc_type ?? "Other"),
+        folder: isPersonal
+          ? PERSONAL_VAULT_FOLDER_HE
+          : String(folderRaw || PERSONAL_VAULT_FOLDER_HE),
+        summary: (f.corrected_summary as string | null) ?? null,
+        priority: Number(f.priority) || 10,
+        created_at: String(f.created_at ?? ""),
+      };
+    });
   } catch (e) {
     console.warn("[ai/memory] feedback ledger failed:", e);
     return [];
@@ -273,25 +317,49 @@ export async function recordFeedback(
         "ID",
       ].includes(input.corrected_doc_type);
 
-    const { data, error } = await supabase
+    const row: Record<string, unknown> = {
+      original_doc_type: input.original_doc_type ?? null,
+      original_vendor: input.original_vendor ?? null,
+      original_folder: input.original_folder ?? null,
+      corrected_doc_type: input.corrected_doc_type,
+      corrected_vendor: input.corrected_vendor.replace(/\s+/g, "_"),
+      corrected_folder: personal
+        ? PERSONAL_VAULT_FOLDER_HE
+        : input.corrected_folder ?? null,
+      corrected_summary: input.corrected_summary ?? null,
+      is_personal_doc: personal,
+      match_vendor: input.corrected_vendor.replace(/\s+/g, "_"),
+      notes: input.notes ?? null,
+      priority: 10,
+    };
+
+    let { data, error } = await supabase
       .from("ai_feedback_ledger")
-      .insert({
-        original_doc_type: input.original_doc_type ?? null,
-        original_vendor: input.original_vendor ?? null,
-        original_folder: input.original_folder ?? null,
-        corrected_doc_type: input.corrected_doc_type,
-        corrected_vendor: input.corrected_vendor.replace(/\s+/g, "_"),
-        corrected_folder: personal
-          ? PERSONAL_VAULT_FOLDER_HE
-          : input.corrected_folder ?? null,
-        corrected_summary: input.corrected_summary ?? null,
-        is_personal_doc: personal,
-        match_vendor: input.corrected_vendor.replace(/\s+/g, "_"),
-        notes: input.notes ?? null,
-        priority: 10,
-      })
+      .insert(row)
       .select("id")
       .single();
+
+    // Retry without corrected_folder if column missing
+    if (
+      error &&
+      /corrected_folder/i.test(error.message) &&
+      /does not exist/i.test(error.message)
+    ) {
+      const { corrected_folder: _drop, ...withoutFolder } = row;
+      const retry = await supabase
+        .from("ai_feedback_ledger")
+        .insert({
+          ...withoutFolder,
+          // some schemas used target_folder instead
+          target_folder: personal
+            ? PERSONAL_VAULT_FOLDER_HE
+            : input.corrected_folder ?? null,
+        })
+        .select("id")
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       if (isMissingTable(error, "ai_feedback_ledger")) {
@@ -301,6 +369,7 @@ export async function recordFeedback(
       throw new Error(error.message);
     }
 
+    if (!data?.id) return null;
     return { id: data.id as string };
   } catch (e) {
     console.warn("[ai/feedback] record failed:", e);

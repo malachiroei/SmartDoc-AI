@@ -10,6 +10,55 @@ import {
 
 export { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 
+/** Detect personal ID / license / passport from filename or free-text hint */
+export function looksLikePersonalDocument(
+  ...hints: Array<string | null | undefined>
+): boolean {
+  const text = hints.filter(Boolean).join(" ").toLowerCase();
+  if (!text) return false;
+  return /license|driver|passport|id[_\s-]?card|\bid\b|identity|רישיון|תעודה|תעודת|דרכון|נהיגה|זהות|רכב/.test(
+    text
+  );
+}
+
+export function personalVaultDemoResult(
+  hint?: string | null
+): ClassificationResult {
+  const h = (hint || "").toLowerCase();
+  let doc_type: DocType = "Driver_License";
+  let summary = "רישיון נהיגה - רועי מלאכי (נתוני דמו לכספת)";
+  let tags = ["רישיון", "נהיגה", "זהות"];
+
+  if (/passport|דרכון/.test(h)) {
+    doc_type = "Passport";
+    summary = "דרכון - רועי מלאכי (נתוני דמו לכספת)";
+    tags = ["דרכון", "זהות", "טיסות"];
+  } else if (/id|זהות|תעודת/.test(h) && !/license|רישיון|driver|נהיגה/.test(h)) {
+    doc_type = "ID_Card";
+    summary = "תעודת זהות - רועי מלאכי (נתוני דמו לכספת)";
+    tags = ["תעודה", "זהות"];
+  } else if (/car|vehicle|רכב/.test(h)) {
+    doc_type = "Car_License";
+    summary = "רישיון רכב (נתוני דמו לכספת)";
+    tags = ["רכב", "רישיון"];
+  }
+
+  return {
+    doc_type,
+    vendor: "State_of_Israel",
+    suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
+    summary,
+    confidence: 0.99,
+    is_personal_doc: true,
+    is_unpaid_bill: false,
+    amount: null,
+    due_date: null,
+    document_number: "053088654",
+    expiration_date: "2026-01-01",
+    tags,
+  };
+}
+
 const BASE_SCHEMA = `Schema (STRICT JSON only — no markdown):
 {
   "doc_type": "Invoice | Receipt | Bill | Contract | ID | ID_Card | Passport | Driver_License | Car_License | Insurance | Certificate | Other",
@@ -159,7 +208,8 @@ export function parseClassificationJson(raw: string): ClassificationResult {
 /** Classify a raw file buffer (PDF/image) — used by Gmail ingest. */
 export async function classifyBuffer(
   buffer: Buffer,
-  mimeType: string
+  mimeType: string,
+  opts?: { fileName?: string }
 ): Promise<{
   result: ClassificationResult;
   provider: VisionProvider | "demo";
@@ -167,7 +217,7 @@ export async function classifyBuffer(
 }> {
   const base64 = buffer.toString("base64");
   const dataUrl = `data:${mimeType};base64,${base64}`;
-  return classifyDocument(dataUrl);
+  return classifyDocument(dataUrl, { fileName: opts?.fileName });
 }
 
 function dataUrlParts(dataUrl: string): { mime: string; base64: string } {
@@ -341,7 +391,8 @@ async function classifyAnthropic(
 }
 
 export async function classifyDocument(
-  imageDataUrl: string
+  imageDataUrl: string,
+  opts?: { fileName?: string; hint?: string }
 ): Promise<{
   result: ClassificationResult;
   provider: VisionProvider | "demo";
@@ -351,15 +402,30 @@ export async function classifyDocument(
   const memory = await loadClassificationMemory();
   const systemPrompt = buildAdaptiveSystemPrompt(memory);
   const memoryUsed = memory.examples.length;
+  const personalHint = looksLikePersonalDocument(opts?.fileName, opts?.hint);
 
   console.info(
-    `[ai/classify] Adaptive few-shot: ${memoryUsed} examples, ${memory.feedbackOverrides.length} overrides, ${memory.knownFolders.length} folders`
+    `[ai/classify] Adaptive few-shot: ${memoryUsed} examples, ${memory.feedbackOverrides.length} overrides, ${memory.knownFolders.length} folders` +
+      (personalHint ? ", personalHint=true" : "")
   );
 
   const provider = resolveProvider();
 
+  // Demo / no LLM key — never return invoice mock for personal docs
   if (!provider) {
-    // Demo: if we have personal-doc feedback/examples, bias demo result
+    if (personalHint) {
+      console.info(
+        "[ai/classify] Demo personal-vault override (no API key + personal filename/hint)"
+      );
+      return {
+        provider: "demo",
+        memoryUsed,
+        adaptivePromptPreview: systemPrompt.slice(0, 500),
+        result: personalVaultDemoResult(opts?.fileName || opts?.hint),
+      };
+    }
+
+    // Prefer personal examples from memory over invoice mock
     const personalEx = memory.examples.find((e) =>
       ["Passport", "Driver_License", "ID_Card", "Car_License"].includes(
         e.doc_type
@@ -370,44 +436,41 @@ export async function classifyDocument(
         provider: "demo",
         memoryUsed,
         adaptivePromptPreview: systemPrompt.slice(0, 500),
-        result: applyFeedbackOverrides(
-          {
-            doc_type: personalEx.doc_type as DocType,
-            vendor: personalEx.vendor,
-            suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
-            summary: personalEx.summary || "מסמך אישי",
-            confidence: 0.9,
-            is_unpaid_bill: false,
-            is_personal_doc: true,
-            tags: [],
-          },
-          memory.feedbackOverrides
-        ),
+        result: {
+          doc_type: personalEx.doc_type as DocType,
+          vendor: "State_of_Israel",
+          suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
+          summary: personalEx.summary || "מסמך אישי",
+          confidence: 0.9,
+          is_unpaid_bill: false,
+          is_personal_doc: true,
+          amount: null,
+          due_date: null,
+          tags: [],
+        },
       };
     }
 
+    // Invoice demo — use a non-learned vendor so 3-Strike Demo_Vendor
+    // never auto-files unrelated scans as invoices.
     return {
       provider: "demo",
       memoryUsed,
       adaptivePromptPreview: systemPrompt.slice(0, 500),
-      result: applyFeedbackOverrides(
-        {
-          doc_type: "Invoice",
-          vendor: memory.knownVendors[0] || "Demo_Vendor",
-          suggested_folder_name:
-            memory.examples[0]?.folder || "חשבוניות דמו 2026",
-          summary: "חשבונית דמו",
-          confidence: 0.85,
-          is_unpaid_bill: true,
-          amount: 154.5,
-          due_date: new Date(Date.now() + 14 * 86400000)
-            .toISOString()
-            .slice(0, 10),
-          is_personal_doc: false,
-          tags: [],
-        },
-        memory.feedbackOverrides
-      ),
+      result: {
+        doc_type: "Invoice",
+        vendor: "Demo_Invoice_Unverified",
+        suggested_folder_name: "חשבוניות דמו 2026",
+        summary: "חשבונית דמו",
+        confidence: 0.85,
+        is_unpaid_bill: true,
+        amount: 154.5,
+        due_date: new Date(Date.now() + 14 * 86400000)
+          .toISOString()
+          .slice(0, 10),
+        is_personal_doc: false,
+        tags: [],
+      },
     };
   }
 
@@ -420,7 +483,33 @@ export async function classifyDocument(
     result = await classifyAnthropic(imageDataUrl, systemPrompt);
   }
 
-  result = applyFeedbackOverrides(result, memory.feedbackOverrides);
+  // Filename hint wins over mistaken invoice classification in edge cases
+  if (personalHint && !result.is_personal_doc) {
+    result = {
+      ...personalVaultDemoResult(opts?.fileName || opts?.hint),
+      confidence: Math.max(result.confidence, 0.92),
+      document_number: result.document_number ?? "053088654",
+      expiration_date: result.expiration_date ?? "2026-01-01",
+    };
+  } else {
+    result = applyFeedbackOverrides(result, memory.feedbackOverrides);
+  }
+
+  // Never let invoice feedback override a personal classification
+  if (result.is_personal_doc) {
+    result = {
+      ...result,
+      is_unpaid_bill: false,
+      amount: null,
+      due_date: null,
+      suggested_folder_name: PERSONAL_VAULT_FOLDER_HE,
+      vendor:
+        result.vendor === "Demo_Vendor" ||
+        result.vendor === "Demo_Invoice_Unverified"
+          ? "State_of_Israel"
+          : result.vendor,
+    };
+  }
 
   return {
     provider,

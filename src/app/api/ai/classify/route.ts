@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 /**
  * POST /api/ai/classify
- * Body: { imageBase64: string }
+ * Body: { imageBase64: string, fileName?: string, hint?: string }
  * Adaptive few-shot classification using Supabase memory.
  */
 export async function POST(request: Request) {
@@ -31,6 +31,9 @@ export async function POST(request: Request) {
     }
 
     const imageBase64 = body.imageBase64 as string | undefined;
+    const fileName =
+      typeof body.fileName === "string" ? body.fileName : undefined;
+    const hint = typeof body.hint === "string" ? body.hint : undefined;
 
     if (!imageBase64 || typeof imageBase64 !== "string") {
       return NextResponse.json(
@@ -44,7 +47,7 @@ export async function POST(request: Request) {
       : `data:image/jpeg;base64,${imageBase64}`;
 
     const { result, provider, memoryUsed, adaptivePromptPreview } =
-      await classifyDocument(payload);
+      await classifyDocument(payload, { fileName, hint });
 
     return NextResponse.json({
       ...result,
@@ -52,7 +55,6 @@ export async function POST(request: Request) {
       demo: provider === "demo",
       memoryUsed,
       adaptive: memoryUsed > 0,
-      // Debug preview (first ~800 chars) — helps verify few-shot injection
       promptPreview: adaptivePromptPreview,
     });
   } catch (e) {
