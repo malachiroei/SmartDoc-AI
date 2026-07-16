@@ -287,6 +287,107 @@ async function classifyOpenAI(
   return parseClassificationJson(content);
 }
 
+const GEMINI_MODEL_FALLBACKS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
+  "gemini-pro-vision",
+] as const;
+
+function resolveGeminiModels(): string[] {
+  const preferred =
+    process.env.GEMINI_VISION_MODEL || process.env.GOOGLE_GEMINI_MODEL || "";
+  // Drop retired / broken aliases (e.g. gemini-1.5-flash)
+  const blocked = /gemini-1\.5|gemini-pro$/i;
+  const ordered = [
+    preferred,
+    ...GEMINI_MODEL_FALLBACKS,
+  ].filter((m) => m && !blocked.test(m));
+  return [...new Set(ordered)];
+}
+
+function isGeminiModelNotFound(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /404|not found|is not supported for generateContent|NOT_FOUND/i.test(msg)
+  );
+}
+
+async function classifyGeminiWithSdk(
+  key: string,
+  modelName: string,
+  systemPrompt: string,
+  mime: string,
+  base64: string
+): Promise<ClassificationResult> {
+  const { GoogleGenerativeAI } = await import("@google/generative-ai");
+  const genAI = new GoogleGenerativeAI(key);
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    systemInstruction: systemPrompt,
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: "application/json",
+    },
+  });
+
+  const result = await model.generateContent([
+    { text: USER_VISION_INSTRUCTION },
+    {
+      inlineData: {
+        mimeType: mime || "image/jpeg",
+        data: base64,
+      },
+    },
+  ]);
+
+  const content = result.response.text();
+  if (!content) throw new Error("Empty Gemini response");
+  return parseClassificationJson(content);
+}
+
+async function classifyGeminiWithRest(
+  key: string,
+  modelName: string,
+  systemPrompt: string,
+  mime: string,
+  base64: string
+): Promise<ClassificationResult> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: USER_VISION_INSTRUCTION },
+              { inline_data: { mime_type: mime, data: base64 } },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini error (${res.status}): ${err}`);
+  }
+
+  const data = await res.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!content) throw new Error("Empty Gemini response");
+  return parseClassificationJson(content);
+}
+
 async function classifyGemini(
   imageDataUrl: string,
   systemPrompt: string
@@ -297,79 +398,56 @@ async function classifyGemini(
     process.env.GOOGLE_API_KEY;
   if (!key) throw new Error("Missing GEMINI_API_KEY");
 
-  const modelName =
-    process.env.GEMINI_VISION_MODEL ||
-    process.env.GOOGLE_GEMINI_MODEL ||
-    "gemini-2.0-flash";
   const { mime, base64 } = dataUrlParts(imageDataUrl);
+  const models = resolveGeminiModels();
+  const errors: string[] = [];
 
-  // Prefer official SDK; fall back to REST if needed
-  try {
-    const { GoogleGenerativeAI } = await import("@google/generative-ai");
-    const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      systemInstruction: systemPrompt,
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: "application/json",
-      },
-    });
+  for (const modelName of models) {
+    try {
+      const result = await classifyGeminiWithSdk(
+        key,
+        modelName,
+        systemPrompt,
+        mime,
+        base64
+      );
+      console.info(`[ai/classify] Gemini SDK ok model=${modelName}`);
+      return result;
+    } catch (sdkErr) {
+      const msg = sdkErr instanceof Error ? sdkErr.message : String(sdkErr);
+      console.warn(`[ai/classify] Gemini SDK ${modelName} failed:`, msg);
 
-    const result = await model.generateContent([
-      { text: USER_VISION_INSTRUCTION },
-      {
-        inlineData: {
-          mimeType: mime || "image/jpeg",
-          data: base64,
-        },
-      },
-    ]);
-
-    const content = result.response.text();
-    if (!content) throw new Error("Empty Gemini response");
-    console.info(`[ai/classify] Gemini SDK ok model=${modelName}`);
-    return parseClassificationJson(content);
-  } catch (sdkErr) {
-    console.warn(
-      "[ai/classify] Gemini SDK failed, trying REST:",
-      sdkErr instanceof Error ? sdkErr.message : sdkErr
-    );
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: USER_VISION_INSTRUCTION },
-                { inline_data: { mime_type: mime, data: base64 } },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: "application/json",
-          },
-        }),
+      try {
+        const result = await classifyGeminiWithRest(
+          key,
+          modelName,
+          systemPrompt,
+          mime,
+          base64
+        );
+        console.info(`[ai/classify] Gemini REST ok model=${modelName}`);
+        return result;
+      } catch (restErr) {
+        const restMsg =
+          restErr instanceof Error ? restErr.message : String(restErr);
+        errors.push(`${modelName}: ${restMsg}`);
+        if (!isGeminiModelNotFound(sdkErr) && !isGeminiModelNotFound(restErr)) {
+          // Non-404 errors (auth, quota, etc.) — still try next model once
+          console.warn(
+            `[ai/classify] Gemini ${modelName} failed, trying next fallback…`
+          );
+        } else {
+          console.warn(
+            `[ai/classify] Model ${modelName} not found (404), trying next…`
+          );
+        }
       }
-    );
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Gemini error: ${err}`);
     }
-
-    const data = await res.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!content) throw new Error("Empty Gemini response");
-    return parseClassificationJson(content);
   }
+
+  throw new Error(
+    `Gemini classify failed for all models [${models.join(", ")}]: ${errors.join(" | ")}`
+  );
 }
 
 async function classifyAnthropic(
