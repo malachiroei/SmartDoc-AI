@@ -3,6 +3,8 @@ import { classifyBuffer } from "@/lib/ai/classify";
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
 import { uploadBufferToDrive, ensureDriveFolder } from "@/lib/drive/server";
 import { maybeCreateBillAlert, PENDING_BILLS_FOLDER_HE } from "@/lib/bills/alerts";
+import { maybeCreatePersonalDocument } from "@/lib/vault/documents";
+import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/classify";
 import { docTypeHe } from "@/lib/i18n/he";
 import type { ClassificationResult, RoutingRule } from "@/lib/types";
 
@@ -207,6 +209,10 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
         folderId = rule.target_folder_id;
         folderName = rule.target_folder_name;
         autonomous = true;
+      } else if (result.is_personal_doc) {
+        const vault = await ensureDriveFolder(PERSONAL_VAULT_FOLDER_HE);
+        folderId = vault.id;
+        folderName = vault.name;
       } else if (result.is_unpaid_bill) {
         const pending = await ensureDriveFolder(PENDING_BILLS_FOLDER_HE);
         folderId = pending.id;
@@ -228,6 +234,10 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
       if (result.is_unpaid_bill) {
         const created = await maybeCreateBillAlert(result, uploaded);
         billAlert = !!created;
+      }
+
+      if (result.is_personal_doc) {
+        await maybeCreatePersonalDocument(result, uploaded);
       }
 
       const typeLabel = docTypeHe(result.doc_type);
@@ -271,11 +281,15 @@ export async function classifyAndProcessAttachment(
   classification: ClassificationResult;
   driveFile: { id: string; webViewLink?: string };
   billAlert: Awaited<ReturnType<typeof maybeCreateBillAlert>>;
+  vaultDoc: Awaited<ReturnType<typeof maybeCreatePersonalDocument>>;
 }> {
   const { result } = await classifyBuffer(buffer, mimeType);
 
   let folderId: string | undefined;
-  if (result.is_unpaid_bill) {
+  if (result.is_personal_doc) {
+    const vault = await ensureDriveFolder(PERSONAL_VAULT_FOLDER_HE);
+    folderId = vault.id;
+  } else if (result.is_unpaid_bill) {
     const pending = await ensureDriveFolder(PENDING_BILLS_FOLDER_HE);
     folderId = pending.id;
   } else {
@@ -291,6 +305,7 @@ export async function classifyAndProcessAttachment(
   });
 
   const billAlert = await maybeCreateBillAlert(result, uploaded);
+  const vaultDoc = await maybeCreatePersonalDocument(result, uploaded);
 
-  return { classification: result, driveFile: uploaded, billAlert };
+  return { classification: result, driveFile: uploaded, billAlert, vaultDoc };
 }

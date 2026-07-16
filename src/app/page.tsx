@@ -10,21 +10,24 @@ import {
   Brain,
   HardDrive,
   Wallet,
+  Shield,
 } from "lucide-react";
 import type { ExportFormat, ScannedPage } from "@/lib/types";
 import { ScanWorkspace } from "@/components/scanner/ScanWorkspace";
 import { PostScanOrchestrator } from "@/components/actions/PostScanOrchestrator";
 import { PendingBillsDashboard } from "@/components/bills/PendingBillsDashboard";
 import { GmailIngestPanel } from "@/components/gmail/GmailIngestPanel";
+import { VaultDashboard } from "@/components/vault/VaultDashboard";
 import { Button } from "@/components/ui/Button";
 import { he } from "@/lib/i18n/he";
 import { cn } from "@/lib/utils";
 
-type AppTab = "home" | "scan" | "bills" | "gmail";
+type AppTab = "home" | "scan" | "bills" | "vault" | "gmail";
 
 const tabs: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
   { id: "home", label: he.tabs.home, icon: Home },
   { id: "scan", label: he.tabs.scan, icon: ScanLine },
+  { id: "vault", label: he.tabs.vault, icon: Shield },
   { id: "bills", label: he.tabs.bills, icon: Wallet },
   { id: "gmail", label: he.tabs.gmail, icon: Mail },
 ];
@@ -35,6 +38,7 @@ export default function HomePage() {
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [modalOpen, setModalOpen] = useState(false);
   const [billsRefresh, setBillsRefresh] = useState(0);
+  const [vaultRefresh, setVaultRefresh] = useState(0);
 
   const handleSave = (saved: ScannedPage[], fmt: ExportFormat) => {
     setPages(saved);
@@ -115,10 +119,10 @@ export default function HomePage() {
                   <Button
                     size="lg"
                     variant="secondary"
-                    onClick={() => setTab("bills")}
+                    onClick={() => setTab("vault")}
                   >
-                    <Wallet className="h-5 w-5" />
-                    {he.tabs.bills}
+                    <Shield className="h-5 w-5" />
+                    {he.tabs.vault}
                   </Button>
                 </div>
               </div>
@@ -171,6 +175,12 @@ export default function HomePage() {
           </section>
         )}
 
+        {tab === "vault" && (
+          <section className="animate-fade-in">
+            <VaultDashboard refreshKey={vaultRefresh} />
+          </section>
+        )}
+
         {tab === "bills" && (
           <section className="animate-fade-in">
             <PendingBillsDashboard
@@ -183,7 +193,10 @@ export default function HomePage() {
         {tab === "gmail" && (
           <section className="animate-fade-in">
             <GmailIngestPanel
-              onIngested={() => setBillsRefresh((k) => k + 1)}
+              onIngested={() => {
+                setBillsRefresh((k) => k + 1);
+                setVaultRefresh((k) => k + 1);
+              }}
             />
           </section>
         )}
@@ -198,6 +211,7 @@ export default function HomePage() {
           setTab("home");
           setPages([]);
           setBillsRefresh((k) => k + 1);
+          setVaultRefresh((k) => k + 1);
         }}
       />
     </div>

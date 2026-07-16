@@ -38,7 +38,21 @@ export type DocType =
   | "Bill"
   | "Contract"
   | "ID"
+  | "ID_Card"
+  | "Passport"
+  | "Driver_License"
+  | "Car_License"
+  | "Insurance"
+  | "Certificate"
   | "Other";
+
+export type PersonalDocType =
+  | "ID_Card"
+  | "Passport"
+  | "Driver_License"
+  | "Car_License"
+  | "Insurance"
+  | "Certificate";
 
 export type ClassificationResult = {
   doc_type: DocType;
@@ -49,6 +63,24 @@ export type ClassificationResult = {
   is_unpaid_bill?: boolean;
   amount?: number | null;
   due_date?: string | null;
+  is_personal_doc?: boolean;
+  document_number?: string | null;
+  expiration_date?: string | null;
+  tags?: string[];
+};
+
+export type PersonalDocument = {
+  id: string;
+  user_id: string | null;
+  doc_type: string;
+  title: string;
+  document_number: string | null;
+  expiration_date: string | null;
+  file_id: string;
+  file_url: string | null;
+  summary: string | null;
+  tags: string[] | null;
+  created_at: string;
 };
 
 export type BillAlertStatus = "PENDING_PAYMENT" | "PAID_AND_ARCHIVED";
@@ -82,4 +114,24 @@ export type RulesUpsertResult = {
   rule: RoutingRule;
   learned: boolean;
   confirmation_count: number;
+};
+
+export type RetrieveDocumentCard = {
+  id: string;
+  title: string;
+  doc_type: string;
+  document_number: string | null;
+  expiration_date: string | null;
+  expired: boolean;
+  expiring_soon: boolean;
+  file_url: string | null;
+  file_id: string;
+  summary: string | null;
+  source: "vault" | "bill";
+};
+
+export type RetrieveResult = {
+  answer: string;
+  documents: RetrieveDocumentCard[];
+  demo?: boolean;
 };

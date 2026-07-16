@@ -10,7 +10,6 @@ import type {
 } from "@/lib/types";
 import { PostScanModal } from "./PostScanModal";
 import { SmartRoutingDialog } from "./SmartRoutingDialog";
-import { ClassificationBadge } from "./ClassificationBadge";
 import { useToast } from "@/components/ui/Toast";
 import {
   createDriveFolder,
@@ -20,6 +19,8 @@ import {
 } from "@/lib/drive/actions";
 import { fetchJsonOk } from "@/lib/api/client-fetch";
 import { createBillFromClassification } from "@/lib/bills/client";
+import { createVaultFromClassification } from "@/lib/vault/client";
+import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/classify";
 import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -100,8 +101,45 @@ export function PostScanOrchestrator({
           is_unpaid_bill: classifyData.is_unpaid_bill,
           amount: classifyData.amount,
           due_date: classifyData.due_date,
+          is_personal_doc: classifyData.is_personal_doc,
+          document_number: classifyData.document_number,
+          expiration_date: classifyData.expiration_date,
+          tags: classifyData.tags,
         };
         setClassification(result);
+
+        // Personal vault — auto-file to מסמכים אישיים
+        if (result.is_personal_doc) {
+          setBusy(true);
+          try {
+            const folder = await createDriveFolder(PERSONAL_VAULT_FOLDER_HE);
+            const uploaded = await uploadPagesToDrive({
+              pages,
+              format,
+              folderId: folder.id,
+              fileBase: makeScanFileBase(),
+            });
+            if (cancelled) return;
+            const saved = await createVaultFromClassification(result, uploaded);
+            toast(
+              he.vault.vaultSaved(
+                saved?.title || result.summary || docTypeHe(result.doc_type)
+              ),
+              "auto"
+            );
+            setBusy(false);
+            setPhase("idle");
+            setClassification(null);
+            setRule(null);
+            onDone?.();
+            onClose();
+            return;
+          } catch (vaultErr) {
+            console.warn("[vault auto-file]", vaultErr);
+            setBusy(false);
+            // Fall through to normal routing on failure
+          }
+        }
 
         // Memory lookup — failures must NOT skip the Smart Routing dialog
         let found: RoutingRule | null = null;
@@ -128,6 +166,7 @@ export function PostScanOrchestrator({
           });
           if (cancelled) return;
           await maybeBillAlert(result, uploaded);
+          await maybeVaultSave(result, uploaded);
           const typeLabel = docTypeHe(result.doc_type);
           toast(
             he.toasts.autoFiled(
@@ -184,6 +223,21 @@ export function PostScanOrchestrator({
     }
   };
 
+  const maybeVaultSave = async (
+    cls: ClassificationResult,
+    driveFile: { id: string; webViewLink?: string }
+  ) => {
+    if (!cls.is_personal_doc) return;
+    try {
+      const doc = await createVaultFromClassification(cls, driveFile);
+      if (doc) {
+        toast(he.vault.vaultSaved(doc.title), "success");
+      }
+    } catch (e) {
+      console.warn("[vault save]", e);
+    }
+  };
+
   const afterSuccessfulFile = async (folder: {
     id: string;
     name: string;
@@ -235,6 +289,7 @@ export function PostScanOrchestrator({
         fileBase: makeScanFileBase(),
       });
       await maybeBillAlert(classification, uploaded);
+      await maybeVaultSave(classification, uploaded);
       await afterSuccessfulFile({
         id: rule.target_folder_id,
         name: rule.target_folder_name,
@@ -261,6 +316,7 @@ export function PostScanOrchestrator({
         fileBase: makeScanFileBase(),
       });
       await maybeBillAlert(classification, uploaded);
+      await maybeVaultSave(classification, uploaded);
       await afterSuccessfulFile({ id: folder.id, name: folder.name });
       finish();
     } catch (e) {
@@ -317,6 +373,7 @@ export function PostScanOrchestrator({
             if (classification) {
               try {
                 await maybeBillAlert(classification, file);
+                await maybeVaultSave(classification, file);
                 await afterSuccessfulFile(folder);
               } catch {
                 /* non-blocking */

@@ -1,28 +1,40 @@
 import type { ClassificationResult, DocType } from "@/lib/types";
 
+export const PERSONAL_VAULT_FOLDER_HE = "מסמכים אישיים";
+
 const SYSTEM_PROMPT = `You are a document classification engine for SmartDoc AI (Hebrew users in Israel).
 Analyze the scanned document image and respond with STRICTLY valid JSON only — no markdown, no commentary.
 
 Schema:
 {
-  "doc_type": "Invoice | Receipt | Bill | Contract | ID | Other",
-  "vendor": "String (e.g., 'Electra', 'Arnona_TelAviv', 'Apple_AppStore')",
-  "suggested_folder_name": "String in HEBREW (clean folder name, e.g. 'חשבונות חשמל 2026', 'ארנונה תל אביב')",
-  "summary": "String in HEBREW (2-3 words describing the doc, e.g. 'חשבון חשמל')",
+  "doc_type": "Invoice | Receipt | Bill | Contract | ID | ID_Card | Passport | Driver_License | Car_License | Insurance | Certificate | Other",
+  "vendor": "String (e.g., 'Electra', 'State_of_Israel', 'Apple_AppStore')",
+  "suggested_folder_name": "String in HEBREW (clean folder name)",
+  "summary": "String in HEBREW (2-5 words describing the doc)",
   "confidence": 0.98,
-  "is_unpaid_bill": true,
-  "amount": 154.50,
-  "due_date": "YYYY-MM-DD"
+  "is_unpaid_bill": false,
+  "amount": null,
+  "due_date": null,
+  "is_personal_doc": true,
+  "document_number": "31245678",
+  "expiration_date": "YYYY-MM-DD",
+  "tags": ["דרכון", "זהות", "טיסות"]
 }
 
 Rules:
-- vendor: use PascalCase or Underscore_Case in Latin letters, no spaces; identify the company/issuer when possible.
-- suggested_folder_name: MUST be in Hebrew. Natural, standardized folder name.
-- summary: MUST be in Hebrew. Exactly 2-3 words.
+- vendor: use PascalCase or Underscore_Case in Latin letters, no spaces.
+- suggested_folder_name: MUST be in Hebrew.
+  - For personal docs (ID/passport/license/insurance/certificate): use exactly "מסמכים אישיים".
+  - For bills/invoices: natural standardized Hebrew folder name.
+- summary: MUST be in Hebrew.
 - confidence: number between 0 and 1.
-- is_unpaid_bill: true if this is an unpaid invoice/bill requiring payment; false for receipts, paid confirmations, contracts, IDs.
-- amount: numeric total due (null if unknown or not a bill).
-- due_date: ISO date YYYY-MM-DD when payment is due (null if unknown or not applicable).
+- is_unpaid_bill: true only for unpaid invoice/bill requiring payment; false for receipts, IDs, passports, licenses.
+- amount / due_date: for unpaid bills only; otherwise null.
+- is_personal_doc: true for ID cards, passports, driver licenses, car licenses, insurance policies, certificates, and similar personal/government identity docs.
+- document_number: extracted ID/passport/license number when visible (null if unknown).
+- expiration_date: ISO YYYY-MM-DD when visible (null if unknown).
+- tags: 2-5 short Hebrew search tags (e.g. דרכון, זהות, רכב, ביטוח).
+- Prefer specific personal types (Passport, Driver_License, etc.) over generic "ID".
 - If unsure, use doc_type "Other" and a best-effort vendor.`;
 
 const DOC_TYPES: DocType[] = [
@@ -31,8 +43,32 @@ const DOC_TYPES: DocType[] = [
   "Bill",
   "Contract",
   "ID",
+  "ID_Card",
+  "Passport",
+  "Driver_License",
+  "Car_License",
+  "Insurance",
+  "Certificate",
   "Other",
 ];
+
+const PERSONAL_TYPES = new Set<DocType>([
+  "ID",
+  "ID_Card",
+  "Passport",
+  "Driver_License",
+  "Car_License",
+  "Insurance",
+  "Certificate",
+]);
+
+function normalizeTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => String(t).trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
 
 export function parseClassificationJson(raw: string): ClassificationResult {
   const cleaned = raw
@@ -41,24 +77,49 @@ export function parseClassificationJson(raw: string): ClassificationResult {
     .trim();
   const parsed = JSON.parse(cleaned) as Partial<ClassificationResult>;
 
-  const docType = DOC_TYPES.includes(parsed.doc_type as DocType)
+  let docType = DOC_TYPES.includes(parsed.doc_type as DocType)
     ? (parsed.doc_type as DocType)
     : "Other";
+
+  // Legacy "ID" → ID_Card when personal
+  if (docType === "ID" && parsed.is_personal_doc !== false) {
+    docType = "ID_Card";
+  }
+
+  const isPersonal =
+    Boolean(parsed.is_personal_doc) || PERSONAL_TYPES.has(docType);
+
+  const suggested = isPersonal
+    ? PERSONAL_VAULT_FOLDER_HE
+    : String(
+        parsed.suggested_folder_name || `${parsed.vendor || "Documents"}`
+      ).trim();
 
   return {
     doc_type: docType,
     vendor: String(parsed.vendor || "Unknown").replace(/\s+/g, "_"),
-    suggested_folder_name: String(
-      parsed.suggested_folder_name || `${parsed.vendor || "Documents"}`
-    ).trim(),
+    suggested_folder_name: suggested,
     summary: String(parsed.summary || "מסמך סרוק").trim(),
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
-    is_unpaid_bill: Boolean(parsed.is_unpaid_bill),
+    is_unpaid_bill: isPersonal ? false : Boolean(parsed.is_unpaid_bill),
     amount:
-      parsed.amount != null && !Number.isNaN(Number(parsed.amount))
+      !isPersonal &&
+      parsed.amount != null &&
+      !Number.isNaN(Number(parsed.amount))
         ? Number(parsed.amount)
         : null,
-    due_date: parsed.due_date ? String(parsed.due_date).slice(0, 10) : null,
+    due_date:
+      !isPersonal && parsed.due_date
+        ? String(parsed.due_date).slice(0, 10)
+        : null,
+    is_personal_doc: isPersonal,
+    document_number: parsed.document_number
+      ? String(parsed.document_number).trim()
+      : null,
+    expiration_date: parsed.expiration_date
+      ? String(parsed.expiration_date).slice(0, 10)
+      : null,
+    tags: normalizeTags(parsed.tags),
   };
 }
 
@@ -191,7 +252,7 @@ async function classifyAnthropic(imageDataUrl: string): Promise<ClassificationRe
     },
     body: JSON.stringify({
       model,
-      max_tokens: 512,
+      max_tokens: 768,
       temperature: 0.1,
       system: SYSTEM_PROMPT,
       messages: [
@@ -242,6 +303,8 @@ export async function classifyDocument(
         is_unpaid_bill: true,
         amount: 154.5,
         due_date: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+        is_personal_doc: false,
+        tags: [],
       },
     };
   }
@@ -255,4 +318,4 @@ export async function classifyDocument(
   return { provider, result: await classifyAnthropic(imageDataUrl) };
 }
 
-export { SYSTEM_PROMPT };
+export { SYSTEM_PROMPT, PERSONAL_TYPES };

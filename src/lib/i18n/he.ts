@@ -3,7 +3,7 @@ import type { DocType } from "@/lib/types";
 /** Hebrew UI copy for SmartDoc */
 export const he = {
   appName: "SmartDoc",
-  phase: "שלב 3",
+  phase: "שלב 4",
   home: {
     badge: "זיהוי AI · למידת 3 אישורים",
     title: "סרקו. למדו. תייקו לבד.",
@@ -130,6 +130,12 @@ export const he = {
     Bill: "חשבון",
     Contract: "חוזה",
     ID: "תעודה",
+    ID_Card: "תעודת זהות",
+    Passport: "דרכון",
+    Driver_License: "רישיון נהיגה",
+    Car_License: "רישיון רכב",
+    Insurance: "ביטוח",
+    Certificate: "תעודה",
     Other: "אחר",
   } satisfies Record<DocType, string>,
   bills: {
@@ -172,7 +178,35 @@ export const he = {
     home: "בית",
     scan: "סריקה",
     bills: "חשבונות",
+    vault: "הכספת",
     gmail: "Gmail",
+  },
+  vault: {
+    title: "הכספת וסוכן השליפה",
+    subtitle: "מסמכים אישיים — תעודות, דרכונים, רישיונות וביטוחים במקום אחד.",
+    searchPlaceholder:
+      "🤖 מה לשלוף לך מהכספת? (למשל: 'צילום רישיון נהיגה', 'דרכון', 'ביטוח רכב'...)",
+    search: "שליפה",
+    searching: "מחפש בכספת…",
+    retrieveError: "שליפת המסמך נכשלה",
+    loadError: "לא ניתן לטעון את הכספת",
+    createError: "שמירת מסמך לכספת נכשלה",
+    empty: "הכספת ריקה — סרקו תעודה, דרכון או רישיון כדי להתחיל.",
+    gridTitle: "מסמכים שמורים",
+    viewDoc: "👁️ הצג מסמך",
+    downloadDoc: "📥 הורד קובץ",
+    docNumber: "מספר מסמך",
+    expires: "תוקף",
+    expired: "פג תוקף",
+    expiringSoon: "פג תוקף בקרוב",
+    noExpiry: "ללא תאריך תוקף",
+    vaultSaved: (title: string) => `🔐 נשמר בכספת: ${title}`,
+    categories: {
+      identity: "תעודות זהות ודרכונים",
+      licenses: "רישיונות",
+      insurance: "ביטוחים ותעודות",
+      other: "אחר",
+    },
   },
 } as const;
 

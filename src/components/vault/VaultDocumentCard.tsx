@@ -1,0 +1,110 @@
+"use client";
+
+import { ExternalLink, Download, AlertTriangle } from "lucide-react";
+import type { RetrieveDocumentCard } from "@/lib/types";
+import { docTypeHe, he } from "@/lib/i18n/he";
+import { cn } from "@/lib/utils";
+
+type Props = {
+  document: RetrieveDocumentCard;
+  className?: string;
+};
+
+function formatExpiry(doc: RetrieveDocumentCard): string {
+  if (!doc.expiration_date) return he.vault.noExpiry;
+  try {
+    return new Date(doc.expiration_date).toLocaleDateString("he-IL");
+  } catch {
+    return doc.expiration_date;
+  }
+}
+
+function downloadUrl(doc: RetrieveDocumentCard): string | null {
+  if (!doc.file_url && !doc.file_id) return null;
+  if (doc.file_id && !doc.file_id.startsWith("demo-")) {
+    return `https://drive.google.com/uc?export=download&id=${doc.file_id}`;
+  }
+  return doc.file_url;
+}
+
+const linkBtn =
+  "inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg font-medium bg-[var(--surface-2)] text-[var(--fg)] border border-[var(--border)] hover:bg-[var(--surface-3)] transition-colors";
+
+export function VaultDocumentCard({ document: doc, className }: Props) {
+  const typeLabel = docTypeHe(doc.doc_type);
+  const viewHref = doc.file_url;
+  const dlHref = downloadUrl(doc);
+
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3",
+        className
+      )}
+      dir="rtl"
+    >
+      <div className="min-w-0">
+        <span className="inline-flex rounded-lg border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-[11px] text-teal-200">
+          {typeLabel}
+        </span>
+        <h3 className="mt-2 font-bold text-[var(--fg)] leading-snug">
+          {doc.title}
+        </h3>
+        {doc.summary && (
+          <p className="mt-1 text-xs text-[var(--fg-muted)]">{doc.summary}</p>
+        )}
+      </div>
+
+      <div className="space-y-1.5 text-sm">
+        {doc.document_number && (
+          <p>
+            <span className="text-[var(--fg-muted)]">{he.vault.docNumber}: </span>
+            <span className="font-[family-name:var(--font-mono)] font-semibold">
+              {doc.document_number}
+            </span>
+          </p>
+        )}
+        <p
+          className={cn(
+            "inline-flex items-center gap-1.5",
+            doc.expired || doc.expiring_soon
+              ? "text-red-300 font-semibold"
+              : "text-[var(--fg-muted)]"
+          )}
+        >
+          {(doc.expired || doc.expiring_soon) && (
+            <AlertTriangle className="h-3.5 w-3.5" />
+          )}
+          {he.vault.expires}: {formatExpiry(doc)}
+          {doc.expired && ` · ${he.vault.expired}`}
+          {!doc.expired && doc.expiring_soon && ` · ${he.vault.expiringSoon}`}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        {viewHref && (
+          <a
+            href={viewHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkBtn}
+          >
+            {he.vault.viewDoc}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
+        {dlHref && (
+          <a
+            href={dlHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkBtn}
+          >
+            {he.vault.downloadDoc}
+            <Download className="h-3.5 w-3.5" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
