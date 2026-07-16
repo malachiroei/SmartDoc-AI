@@ -2,18 +2,39 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ScanLine, Sparkles, Brain, HardDrive } from "lucide-react";
+import {
+  Home,
+  Mail,
+  ScanLine,
+  Sparkles,
+  Brain,
+  HardDrive,
+  Wallet,
+} from "lucide-react";
 import type { ExportFormat, ScannedPage } from "@/lib/types";
 import { ScanWorkspace } from "@/components/scanner/ScanWorkspace";
 import { PostScanOrchestrator } from "@/components/actions/PostScanOrchestrator";
+import { PendingBillsDashboard } from "@/components/bills/PendingBillsDashboard";
+import { GmailIngestPanel } from "@/components/gmail/GmailIngestPanel";
 import { Button } from "@/components/ui/Button";
 import { he } from "@/lib/i18n/he";
+import { cn } from "@/lib/utils";
+
+type AppTab = "home" | "scan" | "bills" | "gmail";
+
+const tabs: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
+  { id: "home", label: he.tabs.home, icon: Home },
+  { id: "scan", label: he.tabs.scan, icon: ScanLine },
+  { id: "bills", label: he.tabs.bills, icon: Wallet },
+  { id: "gmail", label: he.tabs.gmail, icon: Mail },
+];
 
 export default function HomePage() {
-  const [scanning, setScanning] = useState(false);
+  const [tab, setTab] = useState<AppTab>("home");
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [modalOpen, setModalOpen] = useState(false);
+  const [billsRefresh, setBillsRefresh] = useState(0);
 
   const handleSave = (saved: ScannedPage[], fmt: ExportFormat) => {
     setPages(saved);
@@ -24,24 +45,45 @@ export default function HomePage() {
   return (
     <div className="flex-1 flex flex-col" dir="rtl">
       <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--ink)]/80 backdrop-blur-xl">
-        <div className="mx-auto max-w-3xl px-4 h-14 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-500/15 text-teal-300 border border-teal-400/30">
-              <ScanLine className="h-4 w-4" />
+        <div className="mx-auto max-w-3xl px-4">
+          <div className="h-14 flex items-center justify-between">
+            <Link href="/" className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-500/15 text-teal-300 border border-teal-400/30">
+                <ScanLine className="h-4 w-4" />
+              </span>
+              <span className="font-[family-name:var(--font-display)] text-lg tracking-tight">
+                {he.appName}
+                <span className="text-teal-400"> AI</span>
+              </span>
+            </Link>
+            <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-muted)] font-[family-name:var(--font-mono)]">
+              {he.phase}
             </span>
-            <span className="font-[family-name:var(--font-display)] text-lg tracking-tight">
-              {he.appName}
-              <span className="text-teal-400"> AI</span>
-            </span>
-          </Link>
-          <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-muted)] font-[family-name:var(--font-mono)]">
-            {he.phase}
-          </span>
+          </div>
+
+          <nav className="flex gap-1 pb-2 overflow-x-auto">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm whitespace-nowrap transition-colors",
+                  tab === t.id
+                    ? "bg-teal-400/15 text-teal-200 border border-teal-400/30"
+                    : "text-[var(--fg-muted)] hover:text-[var(--fg)] hover:bg-[var(--surface)]"
+                )}
+              >
+                <t.icon className="h-4 w-4" />
+                {t.label}
+              </button>
+            ))}
+          </nav>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:py-10">
-        {!scanning ? (
+        {tab === "home" && (
           <section className="animate-fade-in">
             <div className="relative overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)]/80 p-8 sm:p-12">
               <div
@@ -66,9 +108,17 @@ export default function HomePage() {
                   {he.home.subtitle}
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
-                  <Button size="lg" onClick={() => setScanning(true)}>
+                  <Button size="lg" onClick={() => setTab("scan")}>
                     <ScanLine className="h-5 w-5" />
                     {he.home.startScan}
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    onClick={() => setTab("bills")}
+                  >
+                    <Wallet className="h-5 w-5" />
+                    {he.tabs.bills}
                   </Button>
                 </div>
               </div>
@@ -105,7 +155,9 @@ export default function HomePage() {
               ))}
             </div>
           </section>
-        ) : (
+        )}
+
+        {tab === "scan" && (
           <section className="animate-slide-up" dir="rtl">
             <div className="mb-4 flex items-center justify-between">
               <h1 className="font-[family-name:var(--font-display)] text-2xl">
@@ -114,7 +166,24 @@ export default function HomePage() {
             </div>
             <ScanWorkspace
               onSave={handleSave}
-              onCancel={() => setScanning(false)}
+              onCancel={() => setTab("home")}
+            />
+          </section>
+        )}
+
+        {tab === "bills" && (
+          <section className="animate-fade-in">
+            <PendingBillsDashboard
+              refreshKey={billsRefresh}
+              onPaid={() => setBillsRefresh((k) => k + 1)}
+            />
+          </section>
+        )}
+
+        {tab === "gmail" && (
+          <section className="animate-fade-in">
+            <GmailIngestPanel
+              onIngested={() => setBillsRefresh((k) => k + 1)}
             />
           </section>
         )}
@@ -126,8 +195,9 @@ export default function HomePage() {
         format={format}
         onClose={() => setModalOpen(false)}
         onDone={() => {
-          setScanning(false);
+          setTab("home");
           setPages([]);
+          setBillsRefresh((k) => k + 1);
         }}
       />
     </div>

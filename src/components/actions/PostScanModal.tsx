@@ -29,7 +29,10 @@ type Props = {
   onClose: () => void;
   onDone?: () => void;
   classificationHint?: ClassificationResult | null;
-  onDriveFiled?: (folder: DriveFolder) => void | Promise<void>;
+  onDriveFiled?: (opts: {
+    folder: DriveFolder;
+    file: { id: string; webViewLink?: string };
+  }) => void | Promise<void>;
 };
 
 export function PostScanModal({
@@ -103,7 +106,10 @@ export function PostScanModal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? he.actions.uploadFailed);
-      await onDriveFiled?.(folder);
+      await onDriveFiled?.({
+        folder,
+        file: { id: data.id, webViewLink: data.webViewLink },
+      });
       setStatus(he.actions.savedTo(folder.name, data.name ?? filename));
       setDone(true);
     } catch (e) {

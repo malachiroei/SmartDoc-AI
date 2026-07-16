@@ -3,7 +3,7 @@ import type { DocType } from "@/lib/types";
 /** Hebrew UI copy for SmartDoc */
 export const he = {
   appName: "SmartDoc",
-  phase: "שלב 2",
+  phase: "שלב 3",
   home: {
     badge: "זיהוי AI · למידת 3 אישורים",
     title: "סרקו. למדו. תייקו לבד.",
@@ -132,6 +132,48 @@ export const he = {
     ID: "תעודה",
     Other: "אחר",
   } satisfies Record<DocType, string>,
+  bills: {
+    title: "חשבונות פתוחים לתשלום",
+    empty: "אין חשבונות פתוחים כרגע — הכל מסודר!",
+    vendor: "ספק",
+    amount: "סכום",
+    dueDate: "תאריך יעד",
+    viewBill: "צפייה בחשבון ב-Drive",
+    markPaid: "💳 סימון כשולם וצירוף קבלה",
+    loadError: "לא ניתן לטעון חשבונות פתוחים",
+    createError: "יצירת התראת חשבון נכשלה",
+    payError: "תשלום החשבון נכשל",
+    payTitle: "צירוף קבלת תשלום",
+    paySubtitle: (vendor: string) => `העלו קבלה או אישור תשלום עבור ${vendor}`,
+    uploadReceipt: "העלאת קבלה / צילום",
+    submitPay: "אישור תשלום וארכיון",
+    paying: "מעבד תשלום…",
+    paidToast:
+      "✅ החשבון סומן כשולם! הקבלה צורפה וארכיון המסמכים עודכן ב-Google Drive.",
+    billCreated: (vendor: string, amount: number | null) =>
+      amount != null
+        ? `📋 נוסף חשבון פתוח: ${vendor} · ₪${amount.toFixed(2)}`
+        : `📋 נוסף חשבון פתוח: ${vendor}`,
+    noDueDate: "ללא תאריך יעד",
+  },
+  gmail: {
+    title: "סריקת Gmail",
+    subtitle:
+      "סריקה אוטומטית של מיילים עם חשבוניות, קבלות וקבצים מצורפים — סיווג, תיוק ולמידה.",
+    ingest: "סריקת תיבת דואר נכנס",
+    ingesting: "סורק מיילים…",
+    ingestError: "סריקת Gmail נכשלה",
+    lastScan: (n: number) => `נסרקו ${n} הודעות`,
+    processed: "קבצים שעובדו",
+    noNew: "לא נמצאו מיילים חדשים עם קבצים רלוונטיים",
+    demoNote: "מצב דמו — הגדירו GOOGLE_ACCESS_TOKEN עם הרשאות Gmail",
+  },
+  tabs: {
+    home: "בית",
+    scan: "סריקה",
+    bills: "חשבונות",
+    gmail: "Gmail",
+  },
 } as const;
 
 export function docTypeHe(docType: DocType | string): string {

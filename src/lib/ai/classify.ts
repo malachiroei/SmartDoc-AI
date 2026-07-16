@@ -9,7 +9,10 @@ Schema:
   "vendor": "String (e.g., 'Electra', 'Arnona_TelAviv', 'Apple_AppStore')",
   "suggested_folder_name": "String in HEBREW (clean folder name, e.g. 'חשבונות חשמל 2026', 'ארנונה תל אביב')",
   "summary": "String in HEBREW (2-3 words describing the doc, e.g. 'חשבון חשמל')",
-  "confidence": 0.98
+  "confidence": 0.98,
+  "is_unpaid_bill": true,
+  "amount": 154.50,
+  "due_date": "YYYY-MM-DD"
 }
 
 Rules:
@@ -17,6 +20,9 @@ Rules:
 - suggested_folder_name: MUST be in Hebrew. Natural, standardized folder name.
 - summary: MUST be in Hebrew. Exactly 2-3 words.
 - confidence: number between 0 and 1.
+- is_unpaid_bill: true if this is an unpaid invoice/bill requiring payment; false for receipts, paid confirmations, contracts, IDs.
+- amount: numeric total due (null if unknown or not a bill).
+- due_date: ISO date YYYY-MM-DD when payment is due (null if unknown or not applicable).
 - If unsure, use doc_type "Other" and a best-effort vendor.`;
 
 const DOC_TYPES: DocType[] = [
@@ -47,7 +53,23 @@ export function parseClassificationJson(raw: string): ClassificationResult {
     ).trim(),
     summary: String(parsed.summary || "מסמך סרוק").trim(),
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
+    is_unpaid_bill: Boolean(parsed.is_unpaid_bill),
+    amount:
+      parsed.amount != null && !Number.isNaN(Number(parsed.amount))
+        ? Number(parsed.amount)
+        : null,
+    due_date: parsed.due_date ? String(parsed.due_date).slice(0, 10) : null,
   };
+}
+
+/** Classify a raw file buffer (PDF/image) — used by Gmail ingest. */
+export async function classifyBuffer(
+  buffer: Buffer,
+  mimeType: string
+): Promise<{ result: ClassificationResult; provider: VisionProvider | "demo" }> {
+  const base64 = buffer.toString("base64");
+  const dataUrl = `data:${mimeType};base64,${base64}`;
+  return classifyDocument(dataUrl);
 }
 
 function dataUrlParts(dataUrl: string): { mime: string; base64: string } {
@@ -217,6 +239,9 @@ export async function classifyDocument(
         suggested_folder_name: "חשבוניות דמו 2026",
         summary: "חשבונית דמו",
         confidence: 0.85,
+        is_unpaid_bill: true,
+        amount: 154.5,
+        due_date: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
       },
     };
   }

@@ -46,6 +46,24 @@ export type ClassificationResult = {
   suggested_folder_name: string;
   summary: string;
   confidence: number;
+  is_unpaid_bill?: boolean;
+  amount?: number | null;
+  due_date?: string | null;
+};
+
+export type BillAlertStatus = "PENDING_PAYMENT" | "PAID_AND_ARCHIVED";
+
+export type BillAlert = {
+  id: string;
+  user_id: string | null;
+  vendor: string;
+  amount: number | null;
+  due_date: string | null;
+  status: BillAlertStatus;
+  original_bill_file_id: string;
+  original_bill_url: string | null;
+  receipt_file_id: string | null;
+  created_at: string;
 };
 
 export type RoutingRule = {

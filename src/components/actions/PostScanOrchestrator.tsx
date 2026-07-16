@@ -19,6 +19,7 @@ import {
   upsertRoutingRule,
 } from "@/lib/drive/actions";
 import { fetchJsonOk } from "@/lib/api/client-fetch";
+import { createBillFromClassification } from "@/lib/bills/client";
 import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -96,6 +97,9 @@ export function PostScanOrchestrator({
           suggested_folder_name: classifyData.suggested_folder_name,
           summary: classifyData.summary,
           confidence: classifyData.confidence,
+          is_unpaid_bill: classifyData.is_unpaid_bill,
+          amount: classifyData.amount,
+          due_date: classifyData.due_date,
         };
         setClassification(result);
 
@@ -116,13 +120,14 @@ export function PostScanOrchestrator({
         // Autonomous branch — file silently
         if (found?.is_autonomous) {
           setBusy(true);
-          await uploadPagesToDrive({
+          const uploaded = await uploadPagesToDrive({
             pages,
             format,
             folderId: found.target_folder_id,
             fileBase: makeScanFileBase(),
           });
           if (cancelled) return;
+          await maybeBillAlert(result, uploaded);
           const typeLabel = docTypeHe(result.doc_type);
           toast(
             he.toasts.autoFiled(
@@ -160,6 +165,24 @@ export function PostScanOrchestrator({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const maybeBillAlert = async (
+    cls: ClassificationResult,
+    driveFile: { id: string; webViewLink?: string }
+  ) => {
+    if (!cls.is_unpaid_bill) return;
+    try {
+      const bill = await createBillFromClassification(cls, driveFile);
+      if (bill) {
+        toast(
+          he.bills.billCreated(cls.vendor, cls.amount ?? null),
+          "success"
+        );
+      }
+    } catch (e) {
+      console.warn("[bill alert]", e);
+    }
+  };
 
   const afterSuccessfulFile = async (folder: {
     id: string;
@@ -205,12 +228,13 @@ export function PostScanOrchestrator({
     if (!rule || !classification) return;
     setBusy(true);
     try {
-      await uploadPagesToDrive({
+      const uploaded = await uploadPagesToDrive({
         pages,
         format,
         folderId: rule.target_folder_id,
         fileBase: makeScanFileBase(),
       });
+      await maybeBillAlert(classification, uploaded);
       await afterSuccessfulFile({
         id: rule.target_folder_id,
         name: rule.target_folder_name,
@@ -230,12 +254,13 @@ export function PostScanOrchestrator({
       const folder = await createDriveFolder(
         classification.suggested_folder_name
       );
-      await uploadPagesToDrive({
+      const uploaded = await uploadPagesToDrive({
         pages,
         format,
         folderId: folder.id,
         fileBase: makeScanFileBase(),
       });
+      await maybeBillAlert(classification, uploaded);
       await afterSuccessfulFile({ id: folder.id, name: folder.name });
       finish();
     } catch (e) {
@@ -288,9 +313,10 @@ export function PostScanOrchestrator({
           onClose={handleClose}
           onDone={finish}
           classificationHint={classification}
-          onDriveFiled={async (folder) => {
+          onDriveFiled={async ({ folder, file }) => {
             if (classification) {
               try {
+                await maybeBillAlert(classification, file);
                 await afterSuccessfulFile(folder);
               } catch {
                 /* non-blocking */

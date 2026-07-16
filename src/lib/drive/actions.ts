@@ -8,7 +8,7 @@ export async function uploadPagesToDrive(opts: {
   format: ExportFormat;
   folderId: string;
   fileBase: string;
-}): Promise<{ id: string; name: string; demo?: boolean }> {
+}): Promise<{ id: string; name: string; webViewLink?: string; demo?: boolean }> {
   const { blob, filename, mimeType } = await exportPages(
     opts.pages,
     opts.format,
@@ -21,7 +21,7 @@ export async function uploadPagesToDrive(opts: {
   form.append("fileName", filename);
   form.append("mimeType", mimeType);
 
-  return fetchJsonOk<{ id: string; name: string; demo?: boolean }>(
+  return fetchJsonOk<{ id: string; name: string; webViewLink?: string; demo?: boolean }>(
     "/api/drive/upload",
     { method: "POST", body: form, networkError: he.actions.uploadFailed }
   );
