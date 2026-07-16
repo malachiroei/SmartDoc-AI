@@ -35,7 +35,9 @@ body {
 body {
   margin: 0;
   color: var(--fg);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), "Segoe UI", Tahoma, Arial, sans-serif;
+  direction: rtl;
+  text-align: start;
   background:
     radial-gradient(1200px 600px at 10% -10%, rgba(20, 184, 166, 0.16), transparent 55%),
     radial-gradient(900px 500px at 100% 0%, rgba(56, 189, 248, 0.1), transparent 50%),

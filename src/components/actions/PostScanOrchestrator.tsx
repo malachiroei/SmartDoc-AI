@@ -17,6 +17,7 @@ import {
   uploadPagesToDrive,
   upsertRoutingRule,
 } from "@/lib/drive/actions";
+import { he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
 
@@ -41,14 +42,12 @@ export function PostScanOrchestrator({
     useState<ClassificationResult | null>(null);
   const [rule, setRule] = useState<RoutingRule | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const finish = useCallback(() => {
     setPhase("idle");
     setClassification(null);
     setRule(null);
     setBusy(false);
-    setError(null);
     onDone?.();
     onClose();
   }, [onClose, onDone]);
@@ -58,7 +57,6 @@ export function PostScanOrchestrator({
     setClassification(null);
     setRule(null);
     setBusy(false);
-    setError(null);
     onClose();
   };
 
@@ -68,7 +66,6 @@ export function PostScanOrchestrator({
       setClassification(null);
       setRule(null);
       setBusy(false);
-      setError(null);
       return;
     }
 
@@ -77,7 +74,6 @@ export function PostScanOrchestrator({
     (async () => {
       if (pages.length === 0) return;
       setPhase("classifying");
-      setError(null);
 
       try {
         const imageBase64 = pages[0].processedDataUrl;
@@ -88,7 +84,7 @@ export function PostScanOrchestrator({
         });
         const classifyData = await classifyRes.json();
         if (!classifyRes.ok) {
-          throw new Error(classifyData.error ?? "Classification failed");
+          throw new Error(classifyData.error ?? he.classify.failed);
         }
         if (cancelled) return;
 
@@ -101,18 +97,25 @@ export function PostScanOrchestrator({
         };
         setClassification(result);
 
-        const lookupRes = await fetch(
-          `/api/rules/lookup?vendor=${encodeURIComponent(result.vendor)}`
-        );
-        const lookupData = await lookupRes.json();
-        if (!lookupRes.ok) {
-          throw new Error(lookupData.error ?? "Rule lookup failed");
+        // Memory lookup — failures must NOT skip the Smart Routing dialog
+        let found: RoutingRule | null = null;
+        try {
+          const lookupRes = await fetch(
+            `/api/rules/lookup?vendor=${encodeURIComponent(result.vendor)}`
+          );
+          const lookupData = await lookupRes.json();
+          if (lookupRes.ok) {
+            found = lookupData.rule ?? null;
+          } else {
+            console.warn("[rules/lookup]", lookupData.error);
+          }
+        } catch (lookupErr) {
+          console.warn("[rules/lookup]", lookupErr);
         }
         if (cancelled) return;
-
-        const found: RoutingRule | null = lookupData.rule ?? null;
         setRule(found);
 
+        // Autonomous branch — file silently
         if (found?.is_autonomous) {
           setBusy(true);
           await uploadPagesToDrive({
@@ -122,10 +125,7 @@ export function PostScanOrchestrator({
             fileBase: makeScanFileBase(),
           });
           if (cancelled) return;
-          toast(
-            `🤖 Filed automatically to ${found.target_folder_name} (3-Strike Rule active)`,
-            "auto"
-          );
+          toast(he.toasts.autoFiled(found.target_folder_name), "auto");
           setBusy(false);
           setPhase("idle");
           setClassification(null);
@@ -135,11 +135,16 @@ export function PostScanOrchestrator({
           return;
         }
 
+        // Primary interactive modal — always after successful classify
         setPhase("routing");
       } catch (e) {
         if (cancelled) return;
         console.error(e);
-        setError(e instanceof Error ? e.message : "AI routing failed");
+        toast(
+          e instanceof Error ? e.message : he.classify.failed,
+          "default"
+        );
+        // Classify failed — still allow manual Drive/Email actions
         setPhase("actions");
       }
     })();
@@ -147,7 +152,6 @@ export function PostScanOrchestrator({
     return () => {
       cancelled = true;
     };
-    // Re-run only when a new post-scan session opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -162,16 +166,10 @@ export function PostScanOrchestrator({
       target_folder_name: folder.name,
     });
 
-    if (upsert.learned) {
-      toast(
-        `🎉 Rule Learned! I will automatically file ${classification.vendor} docs here from now on.`,
-        "celebrate"
-      );
+    if (upsert.learned || upsert.confirmation_count >= 3) {
+      toast(he.toasts.learned(classification.vendor), "celebrate");
     } else {
-      toast(
-        `Saved to ${folder.name} · memory ${upsert.confirmation_count}/3`,
-        "success"
-      );
+      toast(he.toasts.successCount(upsert.confirmation_count), "success");
     }
   };
 
@@ -191,7 +189,7 @@ export function PostScanOrchestrator({
       });
       finish();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Filing failed");
+      toast(e instanceof Error ? e.message : he.toasts.filingFailed);
     } finally {
       setBusy(false);
     }
@@ -213,7 +211,7 @@ export function PostScanOrchestrator({
       await afterSuccessfulFile({ id: folder.id, name: folder.name });
       finish();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Filing failed");
+      toast(e instanceof Error ? e.message : he.toasts.filingFailed);
     } finally {
       setBusy(false);
     }
@@ -224,17 +222,17 @@ export function PostScanOrchestrator({
   return (
     <>
       {phase === "classifying" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" dir="rtl">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
           <div className="relative z-10 w-full max-w-sm rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center shadow-2xl animate-slide-up">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-400/15 text-teal-300">
               <Brain className="h-7 w-7" />
             </div>
             <h2 className="font-[family-name:var(--font-display)] text-xl">
-              Analyzing document…
+              {he.classify.analyzing}
             </h2>
             <p className="mt-2 text-sm text-[var(--fg-muted)]">
-              AI vision classification & memory lookup
+              {he.classify.analyzingSub}
             </p>
             <Loader2 className="mx-auto mt-5 h-6 w-6 animate-spin text-teal-300" />
           </div>
@@ -267,15 +265,11 @@ export function PostScanOrchestrator({
               try {
                 await afterSuccessfulFile(folder);
               } catch {
-                /* non-blocking — file already uploaded */
+                /* non-blocking */
               }
             }
           }}
         />
-      )}
-
-      {error && phase === "actions" && (
-        <span className="sr-only">{error}</span>
       )}
     </>
   );

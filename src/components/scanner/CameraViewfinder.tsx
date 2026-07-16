@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Point, Quad } from "@/lib/types";
 import { detectDocumentEdges, defaultQuad } from "@/lib/image/perspective";
 import { cn } from "@/lib/utils";
+import { he } from "@/lib/i18n/he";
 
 type Props = {
   onCapture: (dataUrl: string, corners: Quad) => void;
@@ -58,7 +59,7 @@ export function CameraViewfinder({
       setReady(true);
     } catch {
       setError(
-        "Camera access denied or unavailable. Allow camera permission, or upload an image."
+        he.camera.denied
       );
     }
   }, [facingMode, stopStream]);
@@ -180,7 +181,7 @@ export function CameraViewfinder({
 
       {!ready && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--ink)] text-[var(--fg-muted)] text-sm">
-          Starting camera…
+          {he.camera.starting}
         </div>
       )}
 
@@ -191,7 +192,7 @@ export function CameraViewfinder({
             onClick={startCamera}
             className="text-sm text-[var(--accent)] underline underline-offset-4"
           >
-            Retry camera
+            {he.camera.retry}
           </button>
         </div>
       )}
@@ -201,19 +202,19 @@ export function CameraViewfinder({
           <button
             type="button"
             onClick={flip}
-            className="text-xs uppercase tracking-widest text-white/70 hover:text-white"
+            className="text-xs tracking-widest text-white/70 hover:text-white"
           >
-            Flip
+            {he.camera.flip}
           </button>
           <button
             type="button"
-            aria-label="Capture"
+            aria-label={he.camera.capture}
             onClick={capture}
             disabled={!ready}
             className="h-16 w-16 rounded-full bg-white border-[3px] border-teal-400 shadow-[0_0_0_4px_rgba(255,255,255,0.12)] disabled:opacity-40 transition-transform active:scale-95"
           />
-          <span className="w-10 text-center text-[10px] uppercase tracking-widest text-teal-300/90">
-            {liveCorners ? "Edge" : "—"}
+          <span className="w-12 text-center text-[10px] tracking-widest text-teal-300/90">
+            {liveCorners ? he.camera.edge : "—"}
           </span>
         </div>
       </div>

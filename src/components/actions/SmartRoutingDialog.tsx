@@ -1,9 +1,15 @@
 "use client";
 
-import { FolderPlus, FolderOpen, MousePointer2, Sparkles, Loader2 } from "lucide-react";
+import {
+  FolderPlus,
+  FolderOpen,
+  MousePointer2,
+  Loader2,
+} from "lucide-react";
 import type { ClassificationResult, RoutingRule } from "@/lib/types";
 import { Modal } from "@/components/ui/Modal";
 import { cn } from "@/lib/utils";
+import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Props = {
   open: boolean;
@@ -27,103 +33,81 @@ export function SmartRoutingDialog({
   onClose,
 }: Props) {
   const showExisting =
-    !!rule && !rule.is_autonomous && rule.confirmation_count < 3;
+    !!rule && !rule.is_autonomous && rule.confirmation_count >= 1 && rule.confirmation_count < 3;
+
+  const typeLabel = docTypeHe(classification.doc_type);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Smart Routing"
-      subtitle={`${Math.round(classification.confidence * 100)}% confidence · ${classification.summary}`}
+      title={he.routing.title(typeLabel, classification.vendor)}
+      subtitle={he.routing.confidence(
+        Math.round(classification.confidence * 100),
+        classification.summary
+      )}
       wide
     >
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-teal-400/25 bg-teal-400/10 px-4 py-3 flex gap-3">
-          <Sparkles className="h-5 w-5 text-teal-300 shrink-0 mt-0.5" />
-          <p className="text-sm leading-relaxed">
-            I identified this as a{" "}
-            <span className="font-semibold text-teal-100">
-              {classification.vendor}
-            </span>{" "}
-            <span className="font-semibold text-teal-100">
-              {classification.doc_type}
-            </span>
-            .
-          </p>
-        </div>
-
+      <div className="space-y-4" dir="rtl">
         {rule && !rule.is_autonomous && (
-          <p className="text-xs text-[var(--fg-muted)] font-[family-name:var(--font-mono)]">
-            Memory: confirmation {rule.confirmation_count}/3 toward autonomous
-            filing
+          <p className="text-xs text-[var(--fg-muted)]">
+            {he.routing.memory(rule.confirmation_count)}
           </p>
         )}
 
         <div className="space-y-2">
+          {/* Option A — Create new folder (primary teaching action) */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCreateNew}
+            className={cn(
+              "w-full rounded-2xl border border-teal-400/40 bg-teal-400/10 p-4 text-start",
+              "hover:border-teal-400 transition-colors disabled:opacity-50"
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <FolderPlus className="h-5 w-5 text-teal-300 mt-0.5 shrink-0" />
+              <div className="font-medium text-sm leading-relaxed">
+                {he.routing.optionCreate(classification.suggested_folder_name)}
+              </div>
+            </div>
+          </button>
+
+          {/* Option B — Existing rule (count 1 or 2) */}
           {showExisting && (
             <button
               type="button"
               disabled={busy}
               onClick={onFileExisting}
               className={cn(
-                "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left",
+                "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-start",
                 "hover:border-teal-400/60 transition-colors disabled:opacity-50"
               )}
             >
               <div className="flex items-start gap-3">
-                <FolderOpen className="h-5 w-5 text-teal-300 mt-0.5" />
-                <div>
-                  <div className="font-medium text-sm">
-                    File under existing folder: {rule!.target_folder_name}?
-                  </div>
-                  <p className="mt-1 text-xs text-[var(--fg-muted)]">
-                    Option 1 · Reuse learned location (strike{" "}
-                    {rule!.confirmation_count + 1}/3)
-                  </p>
+                <FolderOpen className="h-5 w-5 text-teal-300 mt-0.5 shrink-0" />
+                <div className="font-medium text-sm leading-relaxed">
+                  {he.routing.optionExisting(rule!.target_folder_name)}
                 </div>
               </div>
             </button>
           )}
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onCreateNew}
-            className={cn(
-              "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left",
-              "hover:border-teal-400/60 transition-colors disabled:opacity-50"
-            )}
-          >
-            <div className="flex items-start gap-3">
-              <FolderPlus className="h-5 w-5 text-teal-300 mt-0.5" />
-              <div>
-                <div className="font-medium text-sm">
-                  Create a NEW folder named{" "}
-                  {classification.suggested_folder_name} and file it there?
-                </div>
-                <p className="mt-1 text-xs text-[var(--fg-muted)]">
-                  Option 2 · Teach SmartDoc this destination
-                </p>
-              </div>
-            </div>
-          </button>
-
+          {/* Option C — Manual Drive / Email */}
           <button
             type="button"
             disabled={busy}
             onClick={onManual}
             className={cn(
-              "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left",
+              "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-start",
               "hover:border-teal-400/60 transition-colors disabled:opacity-50"
             )}
           >
             <div className="flex items-start gap-3">
-              <MousePointer2 className="h-5 w-5 text-teal-300 mt-0.5" />
-              <div>
-                <div className="font-medium text-sm">Manual select folder</div>
-                <p className="mt-1 text-xs text-[var(--fg-muted)]">
-                  Option 3 · Fall back to Drive picker / email actions
-                </p>
+              <MousePointer2 className="h-5 w-5 text-teal-300 mt-0.5 shrink-0" />
+              <div className="font-medium text-sm leading-relaxed">
+                {he.routing.optionManual}
               </div>
             </div>
           </button>
@@ -131,7 +115,7 @@ export function SmartRoutingDialog({
 
         {busy && (
           <div className="flex items-center justify-center gap-2 text-sm text-[var(--fg-muted)] py-2">
-            <Loader2 className="h-4 w-4 animate-spin" /> Filing…
+            <Loader2 className="h-4 w-4 animate-spin" /> {he.routing.filing}
           </div>
         )}
       </div>

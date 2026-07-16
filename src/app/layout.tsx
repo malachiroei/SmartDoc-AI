@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Outfit, Fraunces, JetBrains_Mono } from "next/font/google";
+import { Heebo, Fraunces, JetBrains_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/ui/Toast";
 import "./globals.css";
 
-const outfit = Outfit({
+const heebo = Heebo({
   variable: "--font-sans",
-  subsets: ["latin"],
+  subsets: ["hebrew", "latin"],
 });
 
 const fraunces = Fraunces({
@@ -20,8 +20,7 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "SmartDoc AI",
-  description:
-    "CamScanner-quality document scanning with smart filing actions",
+  description: "סריקת מסמכים חכמה עם תיוק אוטומטי ולמידת 3 אישורים",
   applicationName: "SmartDoc AI",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -46,10 +45,11 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
-      className={`${outfit.variable} ${fraunces.variable} ${jetbrains.variable} h-full antialiased`}
+      lang="he"
+      dir="rtl"
+      className={`${heebo.variable} ${fraunces.variable} ${jetbrains.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col" dir="rtl">
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

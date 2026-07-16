@@ -17,6 +17,7 @@ import {
 } from "./DriveFolderPicker";
 import { EmailComposer } from "./EmailComposer";
 import { cn } from "@/lib/utils";
+import { docTypeHe, he } from "@/lib/i18n/he";
 
 type ActionTab = "drive" | "email" | null;
 
@@ -26,9 +27,7 @@ type Props = {
   format: ExportFormat;
   onClose: () => void;
   onDone?: () => void;
-  /** Optional AI classification context from Phase 2 routing */
   classificationHint?: ClassificationResult | null;
-  /** Called after a successful Drive upload (for 3-Strike learning) */
   onDriveFiled?: (folder: DriveFolder) => void | Promise<void>;
 };
 
@@ -72,10 +71,10 @@ export function PostScanModal({
     try {
       const { blob, filename } = await exportPages(pages, format, fileBase);
       downloadBlob(blob, filename);
-      setStatus(`Downloaded ${filename}`);
+      setStatus(he.actions.downloaded(filename));
       setDone(true);
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Export failed");
+      setStatus(e instanceof Error ? e.message : he.actions.exportFailed);
     } finally {
       setBusy(false);
     }
@@ -102,12 +101,12 @@ export function PostScanModal({
         body: form,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+      if (!res.ok) throw new Error(data.error ?? he.actions.uploadFailed);
       await onDriveFiled?.(folder);
-      setStatus(`Saved to ${folder.name}: ${data.name ?? filename}`);
+      setStatus(he.actions.savedTo(folder.name, data.name ?? filename));
       setDone(true);
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Upload failed");
+      setStatus(e instanceof Error ? e.message : he.actions.uploadFailed);
     } finally {
       setBusy(false);
     }
@@ -138,11 +137,11 @@ export function PostScanModal({
         body: form,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Send failed");
-      setStatus(`Email sent to ${payload.to}`);
+      if (!res.ok) throw new Error(data.error ?? he.actions.sendFailed);
+      setStatus(he.actions.emailSent(payload.to));
       setDone(true);
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : "Send failed");
+      setStatus(e instanceof Error ? e.message : he.actions.sendFailed);
     } finally {
       setBusy(false);
     }
@@ -152,22 +151,17 @@ export function PostScanModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title="Scan ready"
-      subtitle={`${pages.length} page${pages.length === 1 ? "" : "s"} · ${format.toUpperCase()}`}
+      title={he.actions.scanReady}
+      subtitle={he.actions.pagesLabel(pages.length, format)}
       wide
     >
       {done ? (
-        <div className="py-8 flex flex-col items-center text-center gap-3 animate-fade-in">
+        <div className="py-8 flex flex-col items-center text-center gap-3 animate-fade-in" dir="rtl">
           <CheckCircle2 className="h-12 w-12 text-teal-400" />
           <p className="text-[var(--fg)] font-medium">{status}</p>
           <div className="flex gap-2 mt-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                reset();
-              }}
-            >
-              Another action
+            <Button variant="secondary" onClick={() => reset()}>
+              {he.actions.anotherAction}
             </Button>
             <Button
               onClick={() => {
@@ -175,17 +169,18 @@ export function PostScanModal({
                 onDone?.();
               }}
             >
-              Done
+              {he.actions.done}
             </Button>
           </div>
         </div>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-5" dir="rtl">
           {classificationHint && (
             <p className="text-xs text-[var(--fg-muted)] rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
               AI:{" "}
               <span className="text-teal-200">
-                {classificationHint.vendor} · {classificationHint.doc_type}
+                {classificationHint.vendor} ·{" "}
+                {docTypeHe(classificationHint.doc_type)}
               </span>{" "}
               — {classificationHint.summary}
             </p>
@@ -196,7 +191,7 @@ export function PostScanModal({
               <img
                 key={p.id}
                 src={p.processedDataUrl}
-                alt={`Page ${i + 1}`}
+                alt={`${he.scanner.page} ${i + 1}`}
                 className="h-20 w-14 rounded-lg object-cover border border-[var(--border)] bg-white"
               />
             ))}
@@ -213,32 +208,32 @@ export function PostScanModal({
                 type="button"
                 onClick={() => setTab("drive")}
                 className={cn(
-                  "rounded-2xl border border-[var(--border)] p-5 text-left",
-                  "bg-[var(--surface-2)] hover:border-teal-400/60 transition-colors group"
+                  "rounded-2xl border border-[var(--border)] p-5 text-start",
+                  "bg-[var(--surface-2)] hover:border-teal-400/60 transition-colors"
                 )}
               >
                 <HardDrive className="h-6 w-6 text-teal-300 mb-3" />
                 <div className="font-[family-name:var(--font-display)] text-lg">
-                  Save to Google Drive
+                  {he.actions.saveDrive}
                 </div>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  Pick a folder — defaults to root or last used.
+                  {he.actions.saveDriveHint}
                 </p>
               </button>
               <button
                 type="button"
                 onClick={() => setTab("email")}
                 className={cn(
-                  "rounded-2xl border border-[var(--border)] p-5 text-left",
+                  "rounded-2xl border border-[var(--border)] p-5 text-start",
                   "bg-[var(--surface-2)] hover:border-teal-400/60 transition-colors"
                 )}
               >
                 <Mail className="h-6 w-6 text-teal-300 mb-3" />
                 <div className="font-[family-name:var(--font-display)] text-lg">
-                  Send via Email
+                  {he.actions.sendEmail}
                 </div>
                 <p className="mt-1 text-sm text-[var(--fg-muted)]">
-                  Recipient autocomplete from recent contacts.
+                  {he.actions.sendEmailHint}
                 </p>
               </button>
             </div>
@@ -251,7 +246,7 @@ export function PostScanModal({
                 className="text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
                 onClick={() => setTab(null)}
               >
-                ← Back
+                {he.actions.back} →
               </button>
               <DriveFolderPicker
                 selectedId={folder?.id}
@@ -273,10 +268,10 @@ export function PostScanModal({
                 className="text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
                 onClick={() => setTab(null)}
               >
-                ← Back
+                {he.actions.back} →
               </button>
               <EmailComposer
-                defaultSubject={`Scanned document — ${fileBase}`}
+                defaultSubject={he.email.defaultSubject(fileBase)}
                 sending={busy}
                 onSend={handleEmailSend}
               />
@@ -290,7 +285,7 @@ export function PostScanModal({
               onClick={handleLocalDownload}
               disabled={busy}
             >
-              <Download className="h-4 w-4" /> Download locally
+              <Download className="h-4 w-4" /> {he.actions.downloadLocal}
             </Button>
             {status && !done && (
               <p className="mt-2 text-center text-sm text-red-300">{status}</p>

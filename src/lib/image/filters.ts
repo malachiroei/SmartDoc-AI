@@ -96,8 +96,8 @@ export function applyFilter(
 }
 
 export const FILTER_LABELS: Record<ScanFilter, string> = {
-  original: "Original",
-  magic: "Magic Color",
-  grayscale: "Grayscale",
-  sharp: "Sharp",
+  original: "מקורי",
+  magic: "צבע קסם",
+  grayscale: "גווני אפור",
+  sharp: "חדות",
 };

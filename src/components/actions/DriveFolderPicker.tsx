@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronRight, Folder, HardDrive, Loader2 } from "lucide-react";
+import { Check, ChevronLeft, Folder, HardDrive, Loader2 } from "lucide-react";
 import type { DriveFolder } from "@/lib/types";
 import {
   getLastDriveFolder,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/storage/preferences";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
+import { he } from "@/lib/i18n/he";
 
 type Props = {
   onSelect: (folder: DriveFolder) => void;
@@ -35,7 +36,7 @@ export function DriveFolderPicker({ onSelect, selectedId }: Props) {
           if (preferred && !selectedId) onSelect(preferred);
         }
       } catch {
-        if (!cancelled) setError("Could not load Drive folders.");
+        if (!cancelled) setError(he.drive.loadError);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -49,7 +50,7 @@ export function DriveFolderPicker({ onSelect, selectedId }: Props) {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)] py-6 justify-center">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading folders…
+        <Loader2 className="h-4 w-4 animate-spin" /> {he.drive.loading}
       </div>
     );
   }
@@ -59,10 +60,12 @@ export function DriveFolderPicker({ onSelect, selectedId }: Props) {
   }
 
   return (
-    <div className="space-y-2 max-h-56 overflow-y-auto">
+    <div className="space-y-2 max-h-56 overflow-y-auto" dir="rtl">
       {folders.map((folder) => {
         const active = selectedId === folder.id;
         const isLast = last?.id === folder.id;
+        const displayName =
+          folder.id === "root" ? he.drive.root : folder.name;
         return (
           <button
             key={folder.id}
@@ -72,7 +75,7 @@ export function DriveFolderPicker({ onSelect, selectedId }: Props) {
               onSelect(folder);
             }}
             className={cn(
-              "w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
+              "w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-start transition-colors",
               active
                 ? "border-teal-400 bg-teal-400/10"
                 : "border-[var(--border)] hover:bg-[var(--surface-2)]"
@@ -86,16 +89,16 @@ export function DriveFolderPicker({ onSelect, selectedId }: Props) {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{folder.name}</div>
+              <div className="text-sm font-medium truncate">{displayName}</div>
               <div className="text-xs text-[var(--fg-muted)] truncate">
                 {folder.path}
-                {isLast ? " · last used" : ""}
+                {isLast ? ` · ${he.drive.lastUsed}` : ""}
               </div>
             </div>
             {active ? (
               <Check className="h-4 w-4 text-teal-300 shrink-0" />
             ) : (
-              <ChevronRight className="h-4 w-4 text-[var(--fg-muted)] shrink-0" />
+              <ChevronLeft className="h-4 w-4 text-[var(--fg-muted)] shrink-0" />
             )}
           </button>
         );
@@ -118,14 +121,15 @@ export function DriveUploadBar({
   onUpload,
 }: UploadProps) {
   return (
-    <div className="space-y-3">
-      <label className="block text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-        Filename
+    <div className="space-y-3" dir="rtl">
+      <label className="block text-xs tracking-wider text-[var(--fg-muted)]">
+        {he.drive.filename}
       </label>
       <input
         readOnly
         value={fileName}
         className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-sm"
+        dir="ltr"
       />
       <Button
         className="w-full"
@@ -134,12 +138,12 @@ export function DriveUploadBar({
       >
         {uploading ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+            <Loader2 className="h-4 w-4 animate-spin" /> {he.drive.uploading}
           </>
         ) : (
           <>
-            <HardDrive className="h-4 w-4" /> Save to{" "}
-            {folder?.name ?? "Google Drive"}
+            <HardDrive className="h-4 w-4" />{" "}
+            {he.drive.saveTo(folder?.name ?? "Google Drive")}
           </>
         )}
       </Button>

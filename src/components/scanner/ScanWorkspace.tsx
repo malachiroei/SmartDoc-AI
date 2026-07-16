@@ -19,6 +19,7 @@ import {
 } from "@/lib/image/perspective";
 import { applyFilter } from "@/lib/image/filters";
 import { isPdfFile, pdfFileToImageDataUrls } from "@/lib/image/pdf";
+import { he } from "@/lib/i18n/he";
 import { CameraViewfinder } from "./CameraViewfinder";
 import { PerspectiveEditor } from "./PerspectiveEditor";
 import { FilterSelector } from "./FilterSelector";
@@ -87,7 +88,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
       if (isPdfFile(file)) {
         const pageUrls = await pdfFileToImageDataUrls(file);
         if (pageUrls.length === 0) {
-          throw new Error("PDF has no pages");
+          throw new Error(he.scanner.pdfEmpty);
         }
 
         // Convert every PDF page into a scan session page (JPEG data URLs)
@@ -117,7 +118,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.onerror = () => reject(new Error(he.scanner.openFailed));
         reader.readAsDataURL(file);
       });
 
@@ -128,7 +129,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
     } catch (e) {
       console.error(e);
       window.alert(
-        e instanceof Error ? e.message : "Could not open that file"
+        e instanceof Error ? e.message : he.scanner.openFailed
       );
     } finally {
       setBusy(false);
@@ -196,7 +197,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" dir="rtl">
       {mode === "camera" && (
         <>
           <CameraViewfinder onCapture={handleCapture} />
@@ -209,7 +210,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
               }`}
             >
               <Upload className="h-4 w-4" />
-              {busy ? "Processing…" : "Upload Image / PDF"}
+              {busy ? he.scanner.processing : he.scanner.upload}
               <input
                 type="file"
                 accept="image/*,application/pdf,.pdf"
@@ -224,7 +225,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
             </label>
             {onCancel && (
               <Button variant="ghost" size="sm" onClick={onCancel}>
-                <X className="h-4 w-4" /> Cancel
+                <X className="h-4 w-4" /> {he.scanner.cancel}
               </Button>
             )}
           </div>
@@ -235,7 +236,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
         <div className="space-y-4 animate-fade-in">
           <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
             <Crop className="h-4 w-4 text-teal-400" />
-            Drag corners to adjust perspective
+            {he.scanner.dragCorners}
           </div>
           <PerspectiveEditor
             imageSrc={draftOriginal}
@@ -249,13 +250,13 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
           />
           {preview && (
             <div className="rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--surface-2)]">
-              <p className="px-3 py-2 text-xs uppercase tracking-wider text-[var(--fg-muted)]">
-                Preview {busy ? "…" : ""}
+              <p className="px-3 py-2 text-xs tracking-wider text-[var(--fg-muted)]">
+                {he.scanner.preview} {busy ? "…" : ""}
               </p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={preview}
-                alt="Processed preview"
+                alt={he.scanner.preview}
                 className="w-full max-h-48 object-contain bg-white"
               />
             </div>
@@ -271,14 +272,14 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
                 setMode("camera");
               }}
             >
-              Retake
+              {he.scanner.retake}
             </Button>
             <Button
               className="flex-1"
               onClick={confirmPage}
               disabled={busy || !preview}
             >
-              <Check className="h-4 w-4" /> Add page
+              <Check className="h-4 w-4" /> {he.scanner.addPage}
             </Button>
           </div>
         </div>
@@ -288,7 +289,8 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-[family-name:var(--font-display)] text-lg">
-              Session · {pages.length} page{pages.length === 1 ? "" : "s"}
+              {he.scanner.session} · {pages.length}{" "}
+              {pages.length === 1 ? he.scanner.page : he.scanner.pages}
             </h3>
           </div>
           <PageThumbnails
@@ -335,7 +337,7 @@ export function ScanWorkspace({ onSave, onCancel }: Props) {
             onClick={() => onSave(pages, format)}
             disabled={pages.length === 0}
           >
-            Save scan & continue
+            {he.scanner.saveContinue}
           </Button>
         </div>
       )}

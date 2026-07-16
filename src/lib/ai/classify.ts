@@ -1,21 +1,21 @@
 import type { ClassificationResult, DocType } from "@/lib/types";
 
-const SYSTEM_PROMPT = `You are a document classification engine for SmartDoc AI.
+const SYSTEM_PROMPT = `You are a document classification engine for SmartDoc AI (Hebrew users in Israel).
 Analyze the scanned document image and respond with STRICTLY valid JSON only — no markdown, no commentary.
 
 Schema:
 {
   "doc_type": "Invoice | Receipt | Bill | Contract | ID | Other",
   "vendor": "String (e.g., 'Electra', 'Arnona_TelAviv', 'Apple_AppStore')",
-  "suggested_folder_name": "String (a clean, standardized folder name suggestion)",
-  "summary": "String (2-3 words describing the doc)",
+  "suggested_folder_name": "String in HEBREW (clean folder name, e.g. 'חשבונות חשמל 2026', 'ארנונה תל אביב')",
+  "summary": "String in HEBREW (2-3 words describing the doc, e.g. 'חשבון חשמל')",
   "confidence": 0.98
 }
 
 Rules:
-- vendor: use PascalCase or Underscore_Case, no spaces, identify the company/issuer when possible.
-- suggested_folder_name: human-readable folder name, e.g. "Electra Invoices" or "Municipal Bills".
-- summary: exactly 2-3 words.
+- vendor: use PascalCase or Underscore_Case in Latin letters, no spaces; identify the company/issuer when possible.
+- suggested_folder_name: MUST be in Hebrew. Natural, standardized folder name.
+- summary: MUST be in Hebrew. Exactly 2-3 words.
 - confidence: number between 0 and 1.
 - If unsure, use doc_type "Other" and a best-effort vendor.`;
 
@@ -45,7 +45,7 @@ export function parseClassificationJson(raw: string): ClassificationResult {
     suggested_folder_name: String(
       parsed.suggested_folder_name || `${parsed.vendor || "Documents"}`
     ).trim(),
-    summary: String(parsed.summary || "Scanned document").trim(),
+    summary: String(parsed.summary || "מסמך סרוק").trim(),
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
   };
 }
@@ -214,8 +214,8 @@ export async function classifyDocument(
       result: {
         doc_type: "Invoice",
         vendor: "Demo_Vendor",
-        suggested_folder_name: "Demo Invoices",
-        summary: "Demo invoice",
+        suggested_folder_name: "חשבוניות דמו 2026",
+        summary: "חשבונית דמו",
         confidence: 0.85,
       },
     };

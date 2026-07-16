@@ -7,6 +7,7 @@ import type { ExportFormat, ScannedPage } from "@/lib/types";
 import { ScanWorkspace } from "@/components/scanner/ScanWorkspace";
 import { PostScanOrchestrator } from "@/components/actions/PostScanOrchestrator";
 import { Button } from "@/components/ui/Button";
+import { he } from "@/lib/i18n/he";
 
 export default function HomePage() {
   const [scanning, setScanning] = useState(false);
@@ -21,7 +22,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col" dir="rtl">
       <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--ink)]/80 backdrop-blur-xl">
         <div className="mx-auto max-w-3xl px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
@@ -29,12 +30,12 @@ export default function HomePage() {
               <ScanLine className="h-4 w-4" />
             </span>
             <span className="font-[family-name:var(--font-display)] text-lg tracking-tight">
-              SmartDoc
+              {he.appName}
               <span className="text-teal-400"> AI</span>
             </span>
           </Link>
           <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--fg-muted)] font-[family-name:var(--font-mono)]">
-            Phase 2
+            {he.phase}
           </span>
         </div>
       </header>
@@ -56,20 +57,18 @@ export default function HomePage() {
               <div className="relative">
                 <p className="inline-flex items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/10 px-3 py-1 text-xs text-teal-200 mb-5">
                   <Sparkles className="h-3.5 w-3.5" />
-                  AI Vision · 3-Strike Learning
+                  {he.home.badge}
                 </p>
-                <h1 className="font-[family-name:var(--font-display)] text-4xl sm:text-5xl tracking-tight text-[var(--fg)] max-w-lg leading-[1.1]">
-                  Scan. Learn. File itself.
+                <h1 className="font-[family-name:var(--font-display)] text-4xl sm:text-5xl tracking-tight text-[var(--fg)] max-w-lg leading-[1.15]">
+                  {he.home.title}
                 </h1>
                 <p className="mt-4 max-w-md text-[var(--fg-muted)] leading-relaxed">
-                  After each scan, AI classifies the document. Confirm a folder
-                  three times and SmartDoc files that vendor automatically
-                  forever after.
+                  {he.home.subtitle}
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Button size="lg" onClick={() => setScanning(true)}>
                     <ScanLine className="h-5 w-5" />
-                    Start scanning
+                    {he.home.startScan}
                   </Button>
                 </div>
               </div>
@@ -79,18 +78,18 @@ export default function HomePage() {
               {[
                 {
                   icon: Brain,
-                  title: "AI classification",
-                  body: "GPT-4o / Gemini / Claude extract vendor, type & folder hint.",
+                  title: he.home.featureClassify,
+                  body: he.home.featureClassifyBody,
                 },
                 {
                   icon: HardDrive,
-                  title: "Smart routing",
-                  body: "Reuse, create, or manually pick — each confirm trains memory.",
+                  title: he.home.featureRoute,
+                  body: he.home.featureRouteBody,
                 },
                 {
                   icon: Sparkles,
-                  title: "3-Strike autonomy",
-                  body: "On the third confirmation, filing goes fully automatic.",
+                  title: he.home.featureStrike,
+                  body: he.home.featureStrikeBody,
                 },
               ].map((item) => (
                 <div
@@ -107,10 +106,10 @@ export default function HomePage() {
             </div>
           </section>
         ) : (
-          <section className="animate-slide-up">
+          <section className="animate-slide-up" dir="rtl">
             <div className="mb-4 flex items-center justify-between">
               <h1 className="font-[family-name:var(--font-display)] text-2xl">
-                Scanner
+                {he.scanner.title}
               </h1>
             </div>
             <ScanWorkspace

@@ -9,6 +9,7 @@ import {
 } from "@/lib/storage/preferences";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
+import { he } from "@/lib/i18n/he";
 
 type Props = {
   defaultSubject: string;
@@ -23,9 +24,7 @@ type Props = {
 export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState(defaultSubject);
-  const [body, setBody] = useState(
-    "Please find the scanned document attached."
-  );
+  const [body, setBody] = useState<string>(he.email.defaultBody);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -59,13 +58,13 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim());
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" dir="rtl">
       <div className="relative">
-        <label className="block text-xs uppercase tracking-wider text-[var(--fg-muted)] mb-1.5">
-          To
+        <label className="block text-xs tracking-wider text-[var(--fg-muted)] mb-1.5">
+          {he.email.to}
         </label>
         <div className="relative">
-          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-muted)]" />
+          <Mail className="absolute end-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-muted)]" />
           <input
             type="email"
             value={to}
@@ -75,8 +74,9 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
             }}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-            placeholder="recipient@company.com"
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] pl-10 pr-3 py-2.5 text-sm outline-none focus:border-teal-400"
+            placeholder={he.email.placeholder}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] pe-10 ps-3 py-2.5 text-sm outline-none focus:border-teal-400"
+            dir="ltr"
             autoComplete="off"
           />
         </div>
@@ -86,7 +86,7 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
               <li key={c.email}>
                 <button
                   type="button"
-                  className="w-full text-left px-3 py-2.5 text-sm hover:bg-[var(--surface-2)] flex flex-col"
+                  className="w-full text-start px-3 py-2.5 text-sm hover:bg-[var(--surface-2)] flex flex-col"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     setTo(c.email);
@@ -95,7 +95,7 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
                 >
                   <span>{c.name ?? c.email}</span>
                   {c.name && (
-                    <span className="text-xs text-[var(--fg-muted)]">
+                    <span className="text-xs text-[var(--fg-muted)]" dir="ltr">
                       {c.email}
                     </span>
                   )}
@@ -107,8 +107,8 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
       </div>
 
       <div>
-        <label className="block text-xs uppercase tracking-wider text-[var(--fg-muted)] mb-1.5">
-          Subject
+        <label className="block text-xs tracking-wider text-[var(--fg-muted)] mb-1.5">
+          {he.email.subject}
         </label>
         <input
           value={subject}
@@ -118,8 +118,8 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
       </div>
 
       <div>
-        <label className="block text-xs uppercase tracking-wider text-[var(--fg-muted)] mb-1.5">
-          Message
+        <label className="block text-xs tracking-wider text-[var(--fg-muted)] mb-1.5">
+          {he.email.message}
         </label>
         <textarea
           value={body}
@@ -157,11 +157,11 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
       >
         {sending ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" /> Sending…
+            <Loader2 className="h-4 w-4 animate-spin" /> {he.email.sending}
           </>
         ) : (
           <>
-            <Send className="h-4 w-4" /> Send via Email
+            <Send className="h-4 w-4" /> {he.email.send}
           </>
         )}
       </Button>
