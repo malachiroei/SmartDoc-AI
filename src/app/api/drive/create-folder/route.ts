@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
+import { ensureDriveFolder } from "@/lib/drive/server";
+import { getAuthenticatedDrive } from "@/lib/google/drive-client";
+import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
+
+export const runtime = "nodejs";
 
 /**
  * POST /api/drive/create-folder
- * Creates a Drive folder (or demo folder when no token).
+ * Find-or-create a Drive folder (under SmartDoc_Archive when parent is root).
  */
 export async function POST(request: Request) {
   try {
@@ -14,50 +19,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
 
-    const token = process.env.GOOGLE_ACCESS_TOKEN;
-
-    if (!token) {
-      await new Promise((r) => setTimeout(r, 400));
-      const id = `demo-folder-${Date.now()}`;
-      return NextResponse.json({
-        id,
-        name,
-        path: parentId === "root" ? `/My Drive/${name}` : `/My Drive/.../${name}`,
-        demo: true,
-      });
-    }
-
-    const metadata: { name: string; mimeType: string; parents?: string[] } = {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-    };
-    if (parentId !== "root") {
-      metadata.parents = [parentId];
-    }
-
-    const res = await fetch("https://www.googleapis.com/drive/v3/files?fields=id%2Cname", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(metadata),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
+    const auth = await getAuthenticatedDrive();
+    if (!auth && isGoogleOAuthConfigured()) {
       return NextResponse.json(
-        { error: data.error?.message ?? "Failed to create folder" },
-        { status: res.status }
+        {
+          error: "Not authenticated with Google Drive",
+          authUrl: "/api/auth/google",
+        },
+        { status: 401 }
       );
     }
 
+    const folder = await ensureDriveFolder(name, parentId);
+    const demo = folder.id.startsWith("demo-");
+
     return NextResponse.json({
-      id: data.id,
-      name: data.name ?? name,
-      path: `/My Drive/${data.name ?? name}`,
+      id: folder.id,
+      name: folder.name,
+      path: `/My Drive/SmartDoc_Archive/${folder.name}`,
+      demo,
     });
   } catch (e) {
+    console.error("[drive/create-folder]", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Create folder failed" },
       { status: 500 }

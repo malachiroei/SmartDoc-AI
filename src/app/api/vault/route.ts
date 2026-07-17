@@ -51,14 +51,17 @@ export async function POST(request: Request) {
       fillDefaults: false,
     });
 
-    // Prefer real image preview (data URL) so Vault cards can show a thumbnail
-    const fileUrl = previewUrl?.startsWith("data:")
-      ? previewUrl
-      : driveFileUrl ||
-        previewUrl ||
-        (!driveFileId.startsWith("demo-")
+    // Prefer real Google Drive webViewLink for Vault file_url (not data:/demo)
+    const driveLink =
+      driveFileUrl &&
+      !driveFileUrl.startsWith("data:") &&
+      !driveFileUrl.includes("/demo-")
+        ? driveFileUrl
+        : !driveFileId.startsWith("demo-")
           ? `https://drive.google.com/file/d/${driveFileId}/view`
-          : null);
+          : null;
+
+    const fileUrl = driveLink || previewUrl || null;
 
     const doc = await createPersonalDocument({
       doc_type: classification.doc_type,

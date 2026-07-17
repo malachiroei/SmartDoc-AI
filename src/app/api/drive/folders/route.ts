@@ -1,67 +1,81 @@
 import { NextResponse } from "next/server";
+import { getAuthenticatedDrive } from "@/lib/google/drive-client";
+import { ensureSmartDocArchive } from "@/lib/drive/server";
+import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
+import { SMARTDOC_ARCHIVE_FOLDER } from "@/lib/google/constants";
 
 /**
- * Lists Google Drive folders.
- * When GOOGLE_ACCESS_TOKEN is set, calls the real Drive API.
- * Otherwise returns demo folders so the UI can be developed offline.
+ * GET /api/drive/folders
+ * Lists Drive folders for the authenticated session (or demo list).
  */
 export async function GET() {
-  const token = process.env.GOOGLE_ACCESS_TOKEN;
+  const auth = await getAuthenticatedDrive();
 
-  if (token) {
-    try {
-      const res = await fetch(
-        "https://www.googleapis.com/drive/v3/files?q=mimeType%3D%27application%2Fvnd.google-apps.folder%27%20and%20trashed%3Dfalse&fields=files(id%2Cname%2Cparents)&pageSize=50",
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      if (!res.ok) {
-        const err = await res.text();
-        return NextResponse.json(
-          { error: `Drive API error: ${err}` },
-          { status: res.status }
-        );
-      }
-      const data = await res.json();
-      const folders = [
-        { id: "root", name: "My Drive (root)", path: "/My Drive" },
-        ...(data.files ?? []).map(
-          (f: { id: string; name: string }) => ({
-            id: f.id,
-            name: f.name,
-            path: `/My Drive/${f.name}`,
-          })
-        ),
-      ];
-      return NextResponse.json({ folders });
-    } catch (e) {
+  if (!auth) {
+    if (isGoogleOAuthConfigured()) {
       return NextResponse.json(
-        { error: e instanceof Error ? e.message : "Drive error" },
-        { status: 500 }
+        {
+          error: "Not authenticated with Google Drive",
+          authUrl: "/api/auth/google",
+          folders: [],
+        },
+        { status: 401 }
       );
     }
+
+    return NextResponse.json({
+      demo: true,
+      folders: [
+        { id: "root", name: "My Drive", path: "/My Drive" },
+        {
+          id: "demo-archive",
+          name: SMARTDOC_ARCHIVE_FOLDER,
+          path: `/My Drive/${SMARTDOC_ARCHIVE_FOLDER}`,
+        },
+        {
+          id: "demo-1",
+          name: "SmartDoc Scans",
+          path: "/My Drive/SmartDoc Scans",
+        },
+        {
+          id: "demo-2",
+          name: "Invoices 2026",
+          path: "/My Drive/Invoices 2026",
+        },
+      ],
+    });
   }
 
-  return NextResponse.json({
-    folders: [
-      { id: "root", name: "My Drive (root)", path: "/My Drive" },
+  try {
+    const archive = await ensureSmartDocArchive(auth.drive);
+    const res = await auth.drive.files.list({
+      q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
+      fields: "files(id,name,parents)",
+      pageSize: 50,
+      spaces: "drive",
+    });
+
+    const folders = [
       {
-        id: "demo-scans",
-        name: "SmartDoc Scans",
-        path: "/My Drive/SmartDoc Scans",
+        id: archive.id,
+        name: archive.name,
+        path: `/My Drive/${archive.name}`,
       },
-      {
-        id: "demo-receipts",
-        name: "Receipts",
-        path: "/My Drive/Receipts",
-      },
-      {
-        id: "demo-invoices",
-        name: "Invoices",
-        path: "/My Drive/Invoices",
-      },
-    ],
-    demo: true,
-  });
+      ...(res.data.files ?? [])
+        .filter((f) => f.id && f.id !== archive.id)
+        .map((f) => ({
+          id: f.id!,
+          name: f.name ?? "Folder",
+          path: `/My Drive/${f.name ?? "Folder"}`,
+        })),
+    ];
+
+    return NextResponse.json({ demo: false, folders });
+  } catch (e) {
+    console.error("[drive/folders]", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to list folders" },
+      { status: 500 }
+    );
+  }
 }

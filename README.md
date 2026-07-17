@@ -37,10 +37,30 @@ Copy `.env.example` → `.env.local` and fill in:
 
 | Variable | Purpose |
 |----------|---------|
-| `GOOGLE_ACCESS_TOKEN` | Drive folder list + upload |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Drive OAuth (real uploads to `SmartDoc_Archive`) |
+| `GOOGLE_REFRESH_TOKEN` | Optional server token (skips interactive login) |
+| `GOOGLE_ACCESS_TOKEN` | Legacy bearer fallback |
 | `SMTP_*` | Real email via Nodemailer |
 
-Without these, APIs run in **demo mode** (UI fully functional).
+Connect Drive once via `/api/auth/google` (stores an httpOnly session cookie).
+Without credentials, APIs run in **demo mode**.
+
+### Vercel
+
+Set the same Google vars in the Vercel project (Production + Preview):
+
+```bash
+vercel login
+vercel link
+vercel env add GOOGLE_CLIENT_ID
+vercel env add GOOGLE_CLIENT_SECRET
+# optional:
+vercel env add GOOGLE_REFRESH_TOKEN
+vercel env add NEXT_PUBLIC_APP_URL
+```
+
+Also add the OAuth redirect URI in Google Cloud Console:
+`https://<your-domain>/api/auth/google/callback`
 
 ## Project layout
 

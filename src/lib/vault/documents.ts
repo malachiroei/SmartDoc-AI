@@ -124,12 +124,16 @@ export async function maybeCreatePersonalDocument(
     /* non-blocking */
   }
 
-  const fileUrl =
-    driveFile.webViewLink ||
-    previewUrl ||
-    (driveFile.id && !driveFile.id.startsWith("demo-")
-      ? `https://drive.google.com/file/d/${driveFile.id}/view`
-      : null);
+  const driveLink =
+    driveFile.webViewLink &&
+    !driveFile.webViewLink.startsWith("data:") &&
+    !driveFile.webViewLink.includes("/demo-")
+      ? driveFile.webViewLink
+      : driveFile.id && !driveFile.id.startsWith("demo-")
+        ? `https://drive.google.com/file/d/${driveFile.id}/view`
+        : null;
+
+  const fileUrl = driveLink || previewUrl || null;
 
   try {
     return await createPersonalDocument({

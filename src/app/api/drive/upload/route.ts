@@ -1,74 +1,77 @@
 import { NextResponse } from "next/server";
+import { uploadBufferToDrive } from "@/lib/drive/server";
+import { getAuthenticatedDrive } from "@/lib/google/drive-client";
+import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
+import { SMARTDOC_ARCHIVE_FOLDER } from "@/lib/google/constants";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+/**
+ * POST /api/drive/upload
+ * Uploads PDF/JPG to Google Drive (SmartDoc_Archive by default).
+ * Requires an authenticated Google session or env tokens.
+ */
 export async function POST(request: Request) {
-  const form = await request.formData();
-  const file = form.get("file");
-  const folderId = String(form.get("folderId") ?? "root");
-  const fileName = String(form.get("fileName") ?? "scan.pdf");
-  const mimeType = String(form.get("mimeType") ?? "application/pdf");
-
-  if (!(file instanceof Blob)) {
-    return NextResponse.json({ error: "Missing file" }, { status: 400 });
-  }
-
-  const token = process.env.GOOGLE_ACCESS_TOKEN;
-
-  if (!token) {
-    // Demo mode — still return a viewable link so Vault cards work
-    await new Promise((r) => setTimeout(r, 600));
-    const id = `demo-${Date.now()}`;
-    return NextResponse.json({
-      id,
-      name: fileName,
-      folderId,
-      demo: true,
-      webViewLink: `https://drive.google.com/file/d/${id}/view`,
-      message:
-        "Demo upload OK. Set GOOGLE_ACCESS_TOKEN to enable real Drive uploads.",
-    });
-  }
-
   try {
-    const metadata = {
-      name: fileName,
-      parents: folderId === "root" ? undefined : [folderId],
-    };
+    const form = await request.formData();
+    const file = form.get("file");
+    const folderId = String(form.get("folderId") ?? "root");
+    const fileName = String(form.get("fileName") ?? "scan.pdf");
+    const mimeType = String(form.get("mimeType") ?? "application/pdf");
 
-    const boundary = "smartdoc_boundary";
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const body = Buffer.concat([
-      Buffer.from(
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
-      ),
-      buffer,
-      Buffer.from(`\r\n--${boundary}--`),
-    ]);
+    if (!(file instanceof Blob)) {
+      return NextResponse.json({ error: "Missing file" }, { status: 400 });
+    }
 
-    const res = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id%2Cname%2CwebViewLink",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": `multipart/related; boundary=${boundary}`,
-        },
-        body,
-      }
-    );
-
-    const data = await res.json();
-    if (!res.ok) {
+    // Auth check — prefer live session / env credentials
+    const auth = await getAuthenticatedDrive();
+    if (!auth && isGoogleOAuthConfigured()) {
       return NextResponse.json(
-        { error: data.error?.message ?? "Drive upload failed" },
-        { status: res.status }
+        {
+          error: "Not authenticated with Google Drive",
+          authUrl: "/api/auth/google",
+          message: "Connect Google Drive first, then retry the upload.",
+        },
+        { status: 401 }
       );
     }
 
-    return NextResponse.json(data);
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const result = await uploadBufferToDrive({
+      buffer,
+      fileName,
+      mimeType,
+      folderId,
+    });
+
+    if (!result.webViewLink || result.webViewLink.startsWith("data:")) {
+      return NextResponse.json(
+        { error: "Upload succeeded but no Drive webViewLink was returned" },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({
+      id: result.id,
+      name: result.name,
+      webViewLink: result.webViewLink,
+      folderId: result.folderId,
+      archiveFolder: SMARTDOC_ARCHIVE_FOLDER,
+      demo: Boolean(result.demo),
+    });
   } catch (e) {
+    const status =
+      e instanceof Error && "status" in e
+        ? Number((e as Error & { status?: number }).status) || 500
+        : 500;
+    console.error("[drive/upload]", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Upload failed" },
-      { status: 500 }
+      {
+        error: e instanceof Error ? e.message : "Upload failed",
+        authUrl: status === 401 ? "/api/auth/google" : undefined,
+      },
+      { status }
     );
   }
 }
