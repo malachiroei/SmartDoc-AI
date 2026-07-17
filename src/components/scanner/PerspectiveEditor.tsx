@@ -91,8 +91,8 @@ export function PerspectiveEditor({
       <svg className="absolute inset-0 h-full w-full pointer-events-none">
         <polygon
           points={displayCorners.map((p) => `${p.x},${p.y}`).join(" ")}
-          fill="rgba(45,212,191,0.15)"
-          stroke="#2dd4bf"
+          fill="rgba(59,130,246,0.15)"
+          stroke="#3b82f6"
           strokeWidth="2"
         />
       </svg>
@@ -101,7 +101,7 @@ export function PerspectiveEditor({
           key={i}
           type="button"
           aria-label={`Corner ${labels[i]}`}
-          className="absolute z-10 h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-teal-400 bg-white shadow-lg cursor-grab active:cursor-grabbing"
+          className="absolute z-10 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-500 shadow-lg cursor-grab active:cursor-grabbing touch-none"
           style={{ left: p.x, top: p.y }}
           onPointerDown={onPointerDown(i)}
         />

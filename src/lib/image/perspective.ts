@@ -19,6 +19,17 @@ export function defaultQuad(width: number, height: number, inset = 0.08): Quad {
   ];
 }
 
+/** Full-bleed crop box (no inset) — use when detection is weak or user chooses Full Page */
+export function fullFrameQuad(width: number, height: number): Quad {
+  return defaultQuad(width, height, 0);
+}
+
+export type EdgeDetectResult = {
+  quad: Quad;
+  /** 0–1 confidence that detected edges match a real document */
+  confidence: number;
+};
+
 /**
  * Lightweight document-edge heuristic for real-time preview.
  * Samples luminance gradients and finds high-contrast corners of a
@@ -28,7 +39,7 @@ export function detectDocumentEdges(
   imageData: ImageData,
   width: number,
   height: number
-): Quad | null {
+): EdgeDetectResult | null {
   const data = imageData.data;
   const gray = new Float32Array(width * height);
 
@@ -67,6 +78,7 @@ export function detectDocumentEdges(
   ];
 
   const corners: Point[] = [];
+  const scores: number[] = [];
   for (const r of regions) {
     let best = 0;
     let bx = (r.x0 + r.x1) / 2;
@@ -81,11 +93,46 @@ export function detectDocumentEdges(
         }
       }
     }
-    if (best < 40) return null;
+    // Raise minimum edge strength so weak / noisy scenes don't "lock" badly
+    if (best < 55) return null;
     corners.push({ x: bx, y: by });
+    scores.push(best);
   }
 
-  return orderQuad(corners);
+  const quad = orderQuad(corners);
+  const [tl, tr, br, bl] = quad;
+
+  // Edge-strength confidence (strong corners → higher)
+  const meanScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const minScore = Math.min(...scores);
+  let confidence = Math.min(1, (meanScore / 140) * 0.65 + (minScore / 100) * 0.35);
+
+  // Geometry: area coverage (too tiny / too wild → lower confidence)
+  const area =
+    0.5 *
+    Math.abs(
+      tl.x * tr.y +
+        tr.x * br.y +
+        br.x * bl.y +
+        bl.x * tl.y -
+        (tl.y * tr.x + tr.y * br.x + br.y * bl.x + bl.y * tl.x)
+    );
+  const frameArea = width * height;
+  const coverage = area / frameArea;
+  if (coverage < 0.2 || coverage > 0.98) confidence *= 0.55;
+  else if (coverage < 0.35) confidence *= 0.75;
+
+  // Penalize heavily skewed quads (non-rectangular)
+  const top = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+  const bottom = Math.hypot(br.x - bl.x, br.y - bl.y);
+  const left = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+  const right = Math.hypot(br.x - tr.x, br.y - tr.y);
+  const widthRatio = Math.min(top, bottom) / Math.max(top, bottom || 1);
+  const heightRatio = Math.min(left, right) / Math.max(left, right || 1);
+  if (widthRatio < 0.55 || heightRatio < 0.55) confidence *= 0.5;
+  else if (widthRatio < 0.75 || heightRatio < 0.75) confidence *= 0.8;
+
+  return { quad, confidence: Math.max(0, Math.min(1, confidence)) };
 }
 
 function getPerspectiveTransform(src: Quad, dst: Quad): number[] {

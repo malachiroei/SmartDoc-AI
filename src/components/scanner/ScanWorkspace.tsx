@@ -16,6 +16,7 @@ import type { ExportFormat, Quad, ScanFilter, ScannedPage } from "@/lib/types";
 import {
   canvasToDataUrl,
   defaultQuad,
+  fullFrameQuad,
   loadImage,
   warpPerspective,
 } from "@/lib/image/perspective";
@@ -339,9 +340,25 @@ export function ScanWorkspace({
 
       {mode === "review" && draftOriginal && draftCorners && (
         <div className="space-y-4 animate-fade-in">
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-            <Crop className="h-4 w-4 text-teal-400" />
-            {he.scanner.dragCorners}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+              <Crop className="h-4 w-4 text-blue-400" />
+              {he.scanner.dragCorners}
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={() => {
+                void loadImage(draftOriginal).then((img) => {
+                  setDraftCorners(
+                    fullFrameQuad(img.naturalWidth, img.naturalHeight)
+                  );
+                });
+              }}
+            >
+              {he.scanner.fullPage}
+            </Button>
           </div>
           <PerspectiveEditor
             imageSrc={draftOriginal}
