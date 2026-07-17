@@ -36,13 +36,11 @@ export default function ScanPage() {
   return (
     <div className="flex-1 flex flex-col" dir="rtl">
       <AppNavbar />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:py-10">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-3 py-3 sm:px-4 sm:py-6 overflow-hidden">
         <section className="animate-slide-up" dir="rtl">
-          <div className="mb-4 flex items-center justify-between">
-            <h1 className="font-[family-name:var(--font-display)] text-2xl">
-              {he.scanner.title}
-            </h1>
-          </div>
+          <h1 className="mb-2 font-[family-name:var(--font-display)] text-lg sm:text-2xl sm:mb-4">
+            {he.scanner.title}
+          </h1>
 
           {!mounted ? (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center text-[var(--fg-muted)] animate-pulse">

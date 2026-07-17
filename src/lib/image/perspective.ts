@@ -31,9 +31,8 @@ export type EdgeDetectResult = {
 };
 
 /**
- * Lightweight document-edge heuristic for real-time preview.
- * Samples luminance gradients and finds high-contrast corners of a
- * rectangular region — good enough for viewfinder guidance without OpenCV.
+ * CamScanner-style document edge detection.
+ * Prefers bright paper vs dark background, then refines with Sobel corners.
  */
 export function detectDocumentEdges(
   imageData: ImageData,
@@ -48,6 +47,75 @@ export function detectDocumentEdges(
     gray[i] = 0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2];
   }
 
+  const paper = detectPaperQuad(gray, width, height);
+  const sobelResult = detectSobelCorners(gray, width, height);
+
+  if (paper && sobelResult) {
+    return paper.confidence >= sobelResult.confidence ? paper : sobelResult;
+  }
+  return paper ?? sobelResult;
+}
+
+/** Detect document from luminance (paper usually brighter than desk/background) */
+function detectPaperQuad(
+  gray: Float32Array,
+  width: number,
+  height: number
+): EdgeDetectResult | null {
+  let sum = 0;
+  for (let i = 0; i < gray.length; i++) sum += gray[i];
+  const mean = sum / gray.length;
+  // Paper threshold — bias toward brighter region
+  const threshold = Math.min(210, Math.max(95, mean + 18));
+
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  let count = 0;
+
+  for (let y = 1; y < height - 1; y += 2) {
+    for (let x = 1; x < width - 1; x += 2) {
+      if (gray[y * width + x] >= threshold) {
+        count++;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  const boxArea = Math.max(1, (maxX - minX) * (maxY - minY));
+  const coverage = boxArea / (width * height);
+  const fill = count / (boxArea / 4); // sampled density
+
+  if (count < 40 || coverage < 0.1 || coverage > 0.92 || fill < 0.15) {
+    return null;
+  }
+
+  // Shrink slightly so we stay on the page, not the desk edge
+  const padX = Math.max(2, (maxX - minX) * 0.02);
+  const padY = Math.max(2, (maxY - minY) * 0.02);
+  const quad = orderQuad([
+    { x: minX + padX, y: minY + padY },
+    { x: maxX - padX, y: minY + padY },
+    { x: maxX - padX, y: maxY - padY },
+    { x: minX + padX, y: maxY - padY },
+  ]);
+
+  let confidence = 0.5 + Math.min(0.4, coverage * 0.55) + Math.min(0.15, fill * 0.2);
+  if (coverage > 0.85) confidence *= 0.75;
+  if (coverage < 0.2) confidence *= 0.7;
+
+  return { quad, confidence: Math.max(0, Math.min(0.95, confidence)) };
+}
+
+function detectSobelCorners(
+  gray: Float32Array,
+  width: number,
+  height: number
+): EdgeDetectResult | null {
   const sobel = new Float32Array(width * height);
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
@@ -71,10 +139,10 @@ export function detectDocumentEdges(
   }
 
   const regions = [
-    { x0: 0, y0: 0, x1: width * 0.4, y1: height * 0.4 },
-    { x0: width * 0.6, y0: 0, x1: width, y1: height * 0.4 },
-    { x0: width * 0.6, y0: height * 0.6, x1: width, y1: height },
-    { x0: 0, y0: height * 0.6, x1: width * 0.4, y1: height },
+    { x0: 0, y0: 0, x1: width * 0.45, y1: height * 0.45 },
+    { x0: width * 0.55, y0: 0, x1: width, y1: height * 0.45 },
+    { x0: width * 0.55, y0: height * 0.55, x1: width, y1: height },
+    { x0: 0, y0: height * 0.55, x1: width * 0.45, y1: height },
   ];
 
   const corners: Point[] = [];
@@ -93,8 +161,7 @@ export function detectDocumentEdges(
         }
       }
     }
-    // Raise minimum edge strength so weak / noisy scenes don't "lock" badly
-    if (best < 55) return null;
+    if (best < 35) return null;
     corners.push({ x: bx, y: by });
     scores.push(best);
   }
@@ -102,12 +169,10 @@ export function detectDocumentEdges(
   const quad = orderQuad(corners);
   const [tl, tr, br, bl] = quad;
 
-  // Edge-strength confidence (strong corners → higher)
   const meanScore = scores.reduce((a, b) => a + b, 0) / scores.length;
   const minScore = Math.min(...scores);
-  let confidence = Math.min(1, (meanScore / 140) * 0.65 + (minScore / 100) * 0.35);
+  let confidence = Math.min(1, (meanScore / 120) * 0.65 + (minScore / 80) * 0.35);
 
-  // Geometry: area coverage (too tiny / too wild → lower confidence)
   const area =
     0.5 *
     Math.abs(
@@ -117,22 +182,53 @@ export function detectDocumentEdges(
         bl.x * tl.y -
         (tl.y * tr.x + tr.y * br.x + br.y * bl.x + bl.y * tl.x)
     );
-  const frameArea = width * height;
-  const coverage = area / frameArea;
-  if (coverage < 0.2 || coverage > 0.98) confidence *= 0.55;
-  else if (coverage < 0.35) confidence *= 0.75;
+  const coverage = area / (width * height);
+  if (coverage < 0.12 || coverage > 0.95) confidence *= 0.5;
+  else if (coverage < 0.25) confidence *= 0.75;
 
-  // Penalize heavily skewed quads (non-rectangular)
   const top = Math.hypot(tr.x - tl.x, tr.y - tl.y);
   const bottom = Math.hypot(br.x - bl.x, br.y - bl.y);
   const left = Math.hypot(bl.x - tl.x, bl.y - tl.y);
   const right = Math.hypot(br.x - tr.x, br.y - tr.y);
   const widthRatio = Math.min(top, bottom) / Math.max(top, bottom || 1);
   const heightRatio = Math.min(left, right) / Math.max(left, right || 1);
-  if (widthRatio < 0.55 || heightRatio < 0.55) confidence *= 0.5;
-  else if (widthRatio < 0.75 || heightRatio < 0.75) confidence *= 0.8;
+  if (widthRatio < 0.5 || heightRatio < 0.5) confidence *= 0.45;
+  else if (widthRatio < 0.7 || heightRatio < 0.7) confidence *= 0.75;
 
   return { quad, confidence: Math.max(0, Math.min(1, confidence)) };
+}
+
+/** Run edge detect on a full capture canvas and scale corners to canvas size */
+export function detectCornersFromCanvas(
+  canvas: HTMLCanvasElement,
+  minConfidence = 0.4
+): { quad: Quad; confidence: number } {
+  const w = canvas.width;
+  const h = canvas.height;
+  const sw = Math.min(640, w);
+  const sh = Math.round((h / w) * sw);
+  const sample = document.createElement("canvas");
+  sample.width = sw;
+  sample.height = sh;
+  const sctx = sample.getContext("2d", { willReadFrequently: true })!;
+  sctx.drawImage(canvas, 0, 0, sw, sh);
+  const img = sctx.getImageData(0, 0, sw, sh);
+  const detected = detectDocumentEdges(img, sw, sh);
+
+  if (detected && detected.confidence >= minConfidence) {
+    const scaleX = w / sw;
+    const scaleY = h / sh;
+    return {
+      confidence: detected.confidence,
+      quad: detected.quad.map((p) => ({
+        x: p.x * scaleX,
+        y: p.y * scaleY,
+      })) as Quad,
+    };
+  }
+
+  // Soft fallback: slight inset (better than full desk background)
+  return { quad: defaultQuad(w, h, 0.05), confidence: detected?.confidence ?? 0 };
 }
 
 function getPerspectiveTransform(src: Quad, dst: Quad): number[] {

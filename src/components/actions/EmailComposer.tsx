@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Mail, Send } from "lucide-react";
+import { Loader2, Mail, Send, Star, Trash2, UserPlus } from "lucide-react";
 import type { Contact } from "@/lib/types";
 import {
   getRecentContacts,
   rememberContact,
+  removeContact,
 } from "@/lib/storage/preferences";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -28,37 +29,72 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
+  const reloadContacts = () => setContacts(getRecentContacts());
+
   useEffect(() => {
-    const local = getRecentContacts();
-    fetch("/api/email/contacts")
-      .then((r) => r.json())
-      .then((data) => {
-        const api: Contact[] = data.contacts ?? [];
-        const merged = [...local];
-        for (const c of api) {
-          if (!merged.some((m) => m.email === c.email)) merged.push(c);
-        }
-        setContacts(merged);
-      })
-      .catch(() => setContacts(local));
+    reloadContacts();
   }, []);
+
+  useEffect(() => {
+    setSubject(defaultSubject);
+  }, [defaultSubject]);
 
   const suggestions = useMemo(() => {
     const q = to.trim().toLowerCase();
-    if (!q) return contacts.slice(0, 6);
+    if (!q) return contacts.slice(0, 8);
     return contacts
       .filter(
         (c) =>
           c.email.toLowerCase().includes(q) ||
           c.name?.toLowerCase().includes(q)
       )
-      .slice(0, 6);
+      .slice(0, 8);
   }, [to, contacts]);
 
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim());
 
   return (
     <div className="space-y-3" dir="rtl">
+      {/* Quick-send saved emails */}
+      <div className="space-y-1.5">
+        <p className="text-xs tracking-wider text-[var(--fg-muted)]">
+          {he.email.quickSend}
+        </p>
+        {contacts.length === 0 ? (
+          <p className="text-xs text-[var(--fg-muted)]">{he.email.noSavedEmails}</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {contacts.map((c) => (
+              <div
+                key={c.email}
+                className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-400/10 ps-2.5 pe-1 py-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => setTo(c.email)}
+                  className="text-xs text-sky-100 hover:underline max-w-[10rem] truncate"
+                  title={c.email}
+                >
+                  {c.name ?? c.email}
+                </button>
+                <button
+                  type="button"
+                  aria-label={he.actions.removeEmail}
+                  onClick={() => {
+                    removeContact(c.email);
+                    reloadContacts();
+                    if (to === c.email) setTo("");
+                  }}
+                  className="rounded-full p-1 text-sky-200/70 hover:bg-red-500/20 hover:text-red-200"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="relative">
         <label className="block text-xs tracking-wider text-[var(--fg-muted)] mb-1.5">
           {he.email.to}
@@ -106,6 +142,21 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
         )}
       </div>
 
+      {valid && (
+        <button
+          type="button"
+          onClick={() => {
+            rememberContact({ email: to.trim() });
+            reloadContacts();
+          }}
+          className="inline-flex items-center gap-1.5 text-xs text-teal-300 hover:underline"
+        >
+          <UserPlus className="h-3.5 w-3.5" />
+          {he.email.saveEmail}
+          <Star className="h-3 w-3" />
+        </button>
+      )}
+
       <div>
         <label className="block text-xs tracking-wider text-[var(--fg-muted)] mb-1.5">
           {he.email.subject}
@@ -124,34 +175,17 @@ export function EmailComposer({ defaultSubject, sending, onSend }: Props) {
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          rows={3}
+          rows={2}
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none focus:border-teal-400 resize-none"
         />
       </div>
-
-      {contacts.length > 0 && !to && (
-        <div className="flex flex-wrap gap-1.5">
-          {contacts.slice(0, 4).map((c) => (
-            <button
-              key={c.email}
-              type="button"
-              onClick={() => setTo(c.email)}
-              className={cn(
-                "rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--fg-muted)]",
-                "hover:border-teal-400/50 hover:text-[var(--fg)]"
-              )}
-            >
-              {c.name ?? c.email}
-            </button>
-          ))}
-        </div>
-      )}
 
       <Button
         className="w-full"
         disabled={!valid || sending}
         onClick={() => {
           rememberContact({ email: to.trim() });
+          reloadContacts();
           onSend({ to: to.trim(), subject, body });
         }}
       >

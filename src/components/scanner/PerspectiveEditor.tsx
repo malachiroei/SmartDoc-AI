@@ -85,7 +85,7 @@ export function PerspectiveEditor({
         src={imageSrc}
         alt="Scan crop"
         onLoad={syncSize}
-        className="block w-full h-auto max-h-[55vh] object-contain mx-auto"
+        className="block w-full h-auto max-h-[min(38dvh,280px)] sm:max-h-[55vh] object-contain mx-auto"
         draggable={false}
       />
       <svg className="absolute inset-0 h-full w-full pointer-events-none">

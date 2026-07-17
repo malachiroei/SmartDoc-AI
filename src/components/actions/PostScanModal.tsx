@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Download, HardDrive, Mail } from "lucide-react";
 import type {
   ClassificationResult,
@@ -17,6 +17,7 @@ import {
 } from "./DriveFolderPicker";
 import { EmailComposer } from "./EmailComposer";
 import { ClassificationBadge } from "./ClassificationBadge";
+import { makeScanFileBase } from "@/lib/drive/filename";
 import { cn } from "@/lib/utils";
 import { he } from "@/lib/i18n/he";
 
@@ -29,6 +30,8 @@ type Props = {
   onClose: () => void;
   onDone?: () => void;
   classificationHint?: ClassificationResult | null;
+  /** Open directly on email tab (scan → analyze → email) */
+  initialTab?: ActionTab;
   onDriveFiled?: (opts: {
     folder: DriveFolder;
     file: { id: string; webViewLink?: string };
@@ -42,24 +45,33 @@ export function PostScanModal({
   onClose,
   onDone,
   classificationHint,
+  initialTab = null,
   onDriveFiled,
 }: Props) {
-  const [tab, setTab] = useState<ActionTab>(null);
+  const [tab, setTab] = useState<ActionTab>(initialTab);
   const [folder, setFolder] = useState<DriveFolder | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
+  useEffect(() => {
+    if (open) {
+      setTab(initialTab ?? null);
+      setDone(false);
+      setStatus(null);
+    }
+  }, [open, initialTab]);
+
   const fileBase = useMemo(() => {
-    const d = new Date();
-    const stamp = d.toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    if (classificationHint) return makeScanFileBase(classificationHint);
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
     return `SmartDoc-${stamp}`;
-  }, [open]);
+  }, [open, classificationHint]);
 
   const fileName = `${fileBase}.${format}`;
 
   const reset = () => {
-    setTab(null);
+    setTab(initialTab);
     setStatus(null);
     setBusy(false);
     setDone(false);
@@ -144,7 +156,15 @@ export function PostScanModal({
         body: form,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? he.actions.sendFailed);
+      if (!res.ok) {
+        throw new Error(
+          data.error ??
+            (data.demo ? he.actions.emailNotConfigured : he.actions.sendFailed)
+        );
+      }
+      if (data.demo) {
+        throw new Error(he.actions.emailNotConfigured);
+      }
       setStatus(he.actions.emailSent(payload.to));
       setDone(true);
     } catch (e) {
@@ -271,7 +291,11 @@ export function PostScanModal({
                 {he.actions.back} →
               </button>
               <EmailComposer
-                defaultSubject={he.email.defaultSubject(fileBase)}
+                defaultSubject={
+                  classificationHint?.summary
+                    ? he.email.defaultSubject(classificationHint.summary)
+                    : he.email.defaultSubject(fileBase)
+                }
                 sending={busy}
                 onSend={handleEmailSend}
               />

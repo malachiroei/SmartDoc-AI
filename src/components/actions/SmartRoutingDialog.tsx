@@ -6,6 +6,7 @@ import {
   FolderOpen,
   MousePointer2,
   Loader2,
+  Mail,
 } from "lucide-react";
 import type { ClassificationResult, DocType, RoutingRule } from "@/lib/types";
 import { Modal } from "@/components/ui/Modal";
@@ -35,6 +36,8 @@ type Props = {
   onFileExisting: (corrected: ClassificationResult) => void;
   onCreateNew: (corrected: ClassificationResult) => void;
   onManual: (corrected: ClassificationResult) => void;
+  /** Skip Drive — go straight to email composer */
+  onEmailOnly?: (corrected: ClassificationResult) => void;
   onClose: () => void;
 };
 
@@ -46,6 +49,7 @@ export function SmartRoutingDialog({
   onFileExisting,
   onCreateNew,
   onManual,
+  onEmailOnly,
   onClose,
 }: Props) {
   const [docType, setDocType] = useState<DocType>(classification.doc_type);
@@ -152,6 +156,30 @@ export function SmartRoutingDialog({
         )}
 
         <div className="space-y-2">
+          {onEmailOnly && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onEmailOnly(buildCorrected())}
+              className={cn(
+                "w-full rounded-2xl border border-sky-400/40 bg-sky-400/10 p-4 text-start",
+                "hover:border-sky-400 transition-colors disabled:opacity-50"
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <Mail className="h-5 w-5 text-sky-300 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-medium text-sm leading-relaxed">
+                    {he.routing.optionEmail}
+                  </div>
+                  <p className="mt-0.5 text-xs text-[var(--fg-muted)]">
+                    {he.routing.optionEmailHint}
+                  </p>
+                </div>
+              </div>
+            </button>
+          )}
+
           <button
             type="button"
             disabled={busy}
