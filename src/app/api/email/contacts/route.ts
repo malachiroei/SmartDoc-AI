@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 
+/**
+ * GET /api/email/contacts
+ * Server no longer returns fake example.com contacts — clients use localStorage saved emails.
+ */
 export async function GET() {
-  // Placeholder contacts — wire to Gmail People API / contacts later
-  return NextResponse.json({
-    contacts: [
-      { email: "accounting@example.com", name: "Accounting" },
-      { email: "boss@example.com", name: "Manager" },
-      { email: "records@example.com", name: "Records Desk" },
-    ],
-  });
+  return NextResponse.json({ contacts: [] });
 }

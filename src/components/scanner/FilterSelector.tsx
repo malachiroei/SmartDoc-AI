@@ -10,9 +10,38 @@ type Props = {
   value: ScanFilter;
   onChange: (filter: ScanFilter) => void;
   previewSrc?: string;
+  /** Compact pill row for mobile one-screen layout */
+  compact?: boolean;
 };
 
-export function FilterSelector({ value, onChange, previewSrc }: Props) {
+export function FilterSelector({
+  value,
+  onChange,
+  previewSrc,
+  compact,
+}: Props) {
+  if (compact) {
+    return (
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+        {FILTERS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => onChange(f)}
+            className={cn(
+              "shrink-0 rounded-full border px-3 py-1 text-[11px] transition-colors",
+              value === f
+                ? "border-teal-400/60 bg-teal-400/15 text-teal-100"
+                : "border-[var(--border)] text-[var(--fg-muted)]"
+            )}
+          >
+            {FILTER_LABELS[f]}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
       {FILTERS.map((f) => (

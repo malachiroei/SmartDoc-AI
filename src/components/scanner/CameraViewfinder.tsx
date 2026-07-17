@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Point, Quad } from "@/lib/types";
 import {
   detectDocumentEdges,
+  detectCornersFromCanvas,
+  defaultQuad,
   fullFrameQuad,
 } from "@/lib/image/perspective";
 import { cn } from "@/lib/utils";
@@ -15,8 +17,8 @@ type Props = {
   className?: string;
 };
 
-/** Below this confidence, prefer full-frame over aggressive auto-crop */
-const EDGE_CONFIDENCE_MIN = 0.7;
+/** Below this confidence in live preview, use soft inset instead of full desk */
+const EDGE_CONFIDENCE_MIN = 0.45;
 const CORNER_HIT_RADIUS = 36;
 
 /**
@@ -261,11 +263,20 @@ export function CameraViewfinder({
             cornersRef.current = scaled;
             setLiveCorners(scaled);
             setEdgeConfidence(detected.confidence);
+          } else if (detected && detected.confidence >= 0.3) {
+            // Weak but usable — still crop (CamScanner-like) rather than full desk
+            const scaleX = w / sw;
+            const scaleY = h / sh;
+            const scaled = detected.quad.map((p: Point) => ({
+              x: p.x * scaleX,
+              y: p.y * scaleY,
+            })) as Quad;
+            cornersRef.current = scaled;
+            setLiveCorners(scaled);
+            setEdgeConfidence(detected.confidence);
           } else {
-            // Low confidence / no edges → full frame (no aggressive inset crop)
-            const full = fullFrameQuad(w, h);
-            cornersRef.current = full;
-            setLiveCorners(full);
+            cornersRef.current = defaultQuad(w, h, 0.06);
+            setLiveCorners(cornersRef.current);
             setEdgeConfidence(detected?.confidence ?? 0);
           }
         } else if (!cornersRef.current) {
@@ -292,9 +303,13 @@ export function CameraViewfinder({
     const ctx = canvas.getContext("2d")!;
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
-    const corners =
-      cornersRef.current ?? fullFrameQuad(canvas.width, canvas.height);
-    onCapture(dataUrl, corners);
+
+    // CamScanner-style: re-detect on the still frame at higher quality
+    const refined = detectCornersFromCanvas(canvas, 0.35);
+    cornersRef.current = refined.quad;
+    setLiveCorners(refined.quad);
+    setEdgeConfidence(refined.confidence);
+    onCapture(dataUrl, refined.quad);
   };
 
   const flip = () =>
@@ -338,7 +353,7 @@ export function CameraViewfinder({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl bg-black aspect-[3/4] sm:aspect-[4/3]",
+        "relative overflow-hidden rounded-2xl bg-black aspect-[3/4] sm:aspect-[4/3] max-h-[min(48dvh,380px)] sm:max-h-none",
         className
       )}
     >
@@ -385,7 +400,7 @@ export function CameraViewfinder({
       </div>
 
       <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-        <p className="mb-3 text-center text-[10px] tracking-wide text-white/70">
+        <p className="mb-2 text-center text-[10px] tracking-wide text-white/70">
           {he.camera.dragHint}
         </p>
         <div className="flex items-center justify-center gap-6 sm:gap-8">

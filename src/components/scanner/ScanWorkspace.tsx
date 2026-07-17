@@ -254,12 +254,12 @@ export function ScanWorkspace({
           {/* Always visible — even when camera permission fails */}
           <label
             className={cn(
-              "flex flex-col sm:flex-row items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-teal-400/40 bg-teal-400/5 px-4 py-5 cursor-pointer transition-colors hover:border-teal-400/70 hover:bg-teal-400/10",
+              "flex items-center justify-center gap-2 rounded-xl border border-dashed border-teal-400/40 bg-teal-400/5 px-3 py-2.5 cursor-pointer transition-colors hover:border-teal-400/70",
               busy && "opacity-60 pointer-events-none"
             )}
           >
-            <Upload className="h-5 w-5 text-teal-300" />
-            <span className="text-sm font-medium text-teal-100">
+            <Upload className="h-4 w-4 text-teal-300" />
+            <span className="text-xs font-medium text-teal-100">
               {busy ? he.scanner.processing : he.scanner.upload}
             </span>
             <input
@@ -286,16 +286,17 @@ export function ScanWorkspace({
       )}
 
       {mode === "review" && draftOriginal && draftCorners && (
-        <div className="space-y-4 animate-fade-in">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-              <Crop className="h-4 w-4 text-blue-400" />
+        <div className="flex flex-col gap-2 animate-fade-in">
+          <div className="flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+              <Crop className="h-3.5 w-3.5 text-blue-400" />
               {he.scanner.dragCorners}
             </div>
             <Button
               variant="secondary"
               size="sm"
               type="button"
+              className="!py-1 !text-xs"
               onClick={() => {
                 void loadImage(draftOriginal).then((img) => {
                   setDraftCorners(
@@ -307,59 +308,53 @@ export function ScanWorkspace({
               {he.scanner.fullPage}
             </Button>
           </div>
+
           <PerspectiveEditor
             imageSrc={draftOriginal}
             corners={draftCorners}
             onChange={setDraftCorners}
+            className="[&_img]:max-h-[min(38dvh,280px)]"
           />
+
           <FilterSelector
             value={filter}
             onChange={setFilter}
             previewSrc={preview ?? draftOriginal}
+            compact
           />
-          {preview && (
-            <div className="rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--surface-2)]">
-              <p className="px-3 py-2 text-xs tracking-wider text-[var(--fg-muted)]">
-                {he.scanner.preview} {busy ? "…" : ""}
-              </p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={preview}
-                alt={he.scanner.preview}
-                className="w-full max-h-48 object-contain bg-white"
-              />
-            </div>
-          )}
 
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={() => void finishAndScan()}
-            disabled={busy || !preview}
-          >
-            <Sparkles className="h-5 w-5" />
-            {he.scanner.finishScan}
-          </Button>
-
-          <div className="flex gap-2">
+          <div className="sticky bottom-0 z-10 space-y-1.5 bg-gradient-to-t from-[var(--ink)] via-[var(--ink)] to-transparent pt-3 pb-safe shrink-0">
             <Button
-              variant="secondary"
-              className="flex-1"
-              onClick={() => {
-                clearDraft();
-                setMode("camera");
-              }}
-            >
-              {he.scanner.retake}
-            </Button>
-            <Button
-              variant="secondary"
-              className="flex-1"
-              onClick={() => void confirmPage()}
+              className="w-full"
+              size="lg"
+              onClick={() => void finishAndScan()}
               disabled={busy || !preview}
             >
-              <Check className="h-4 w-4" /> {he.scanner.addPage}
+              <Sparkles className="h-5 w-5" />
+              {he.scanner.finishScan}
             </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="flex-1"
+                size="sm"
+                onClick={() => {
+                  clearDraft();
+                  setMode("camera");
+                }}
+              >
+                {he.scanner.retake}
+              </Button>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                size="sm"
+                onClick={() => void confirmPage()}
+                disabled={busy || !preview}
+              >
+                <Check className="h-4 w-4" /> {he.scanner.addPage}
+              </Button>
+            </div>
           </div>
         </div>
       )}

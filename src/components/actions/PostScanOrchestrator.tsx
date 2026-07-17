@@ -45,6 +45,7 @@ export function PostScanOrchestrator({
 }: Props) {
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>("idle");
+  const [actionsTab, setActionsTab] = useState<"drive" | "email" | null>(null);
   const [classification, setClassification] =
     useState<ClassificationResult | null>(null);
   const [rule, setRule] = useState<RoutingRule | null>(null);
@@ -52,6 +53,7 @@ export function PostScanOrchestrator({
 
   const finish = useCallback(() => {
     setPhase("idle");
+    setActionsTab(null);
     setClassification(null);
     setRule(null);
     setBusy(false);
@@ -411,6 +413,16 @@ export function PostScanOrchestrator({
     if (classification) {
       await applyCorrection(classification, corrected);
     }
+    setActionsTab(null);
+    setPhase("actions");
+  };
+
+  const handleEmailOnly = async (corrected: ClassificationResult) => {
+    if (classification) {
+      await applyCorrection(classification, corrected);
+    }
+    setClassification(corrected);
+    setActionsTab("email");
     setPhase("actions");
   };
 
@@ -446,6 +458,7 @@ export function PostScanOrchestrator({
           onFileExisting={handleFileExisting}
           onCreateNew={handleCreateNew}
           onManual={handleManual}
+          onEmailOnly={handleEmailOnly}
           onClose={handleClose}
         />
       )}
@@ -455,6 +468,7 @@ export function PostScanOrchestrator({
           open
           pages={pages}
           format={format}
+          initialTab={actionsTab}
           onClose={handleClose}
           onDone={finish}
           classificationHint={classification}

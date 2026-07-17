@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
   if (!to || !(file instanceof Blob)) {
     return NextResponse.json(
-      { error: "Recipient and file are required" },
+      { error: "נדרשים נמען וקובץ מצורף" },
       { status: 400 }
     );
   }
@@ -23,16 +23,17 @@ export async function POST(request: Request) {
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM ?? user;
 
+  // Never pretend email was sent — demo mode caused false "success" in production
   if (!host || !user || !pass) {
-    await new Promise((r) => setTimeout(r, 500));
-    return NextResponse.json({
-      ok: true,
-      demo: true,
-      message: `Demo send to ${to}. Configure SMTP_* env vars for real email.`,
-      to,
-      subject,
-      fileName,
-    });
+    return NextResponse.json(
+      {
+        error:
+          "שליחת מייל לא מוגדרת בשרת. הוסיפו ב-Vercel: SMTP_HOST, SMTP_USER, SMTP_PASS (ואופציונלי SMTP_FROM).",
+        demo: true,
+        configured: false,
+      },
+      { status: 503 }
+    );
   }
 
   try {
@@ -59,10 +60,16 @@ export async function POST(request: Request) {
       ],
     });
 
-    return NextResponse.json({ ok: true, to, subject });
+    return NextResponse.json({ ok: true, to, subject, demo: false });
   } catch (e) {
+    console.error("[email/send]", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Send failed" },
+      {
+        error:
+          e instanceof Error
+            ? `שליחת המייל נכשלה: ${e.message}`
+            : "שליחת המייל נכשלה",
+      },
       { status: 500 }
     );
   }

@@ -13,9 +13,20 @@ export function getRecentContacts(): Contact[] {
 }
 
 export function rememberContact(contact: Contact) {
-  const list = getRecentContacts().filter((c) => c.email !== contact.email);
-  list.unshift(contact);
-  localStorage.setItem(CONTACTS_KEY, JSON.stringify(list.slice(0, 12)));
+  const email = contact.email.trim().toLowerCase();
+  if (!email) return;
+  const list = getRecentContacts().filter(
+    (c) => c.email.toLowerCase() !== email
+  );
+  list.unshift({ ...contact, email });
+  localStorage.setItem(CONTACTS_KEY, JSON.stringify(list.slice(0, 20)));
+}
+
+export function removeContact(email: string) {
+  const list = getRecentContacts().filter(
+    (c) => c.email.toLowerCase() !== email.trim().toLowerCase()
+  );
+  localStorage.setItem(CONTACTS_KEY, JSON.stringify(list));
 }
 
 export function getLastDriveFolder(): DriveFolder | null {
