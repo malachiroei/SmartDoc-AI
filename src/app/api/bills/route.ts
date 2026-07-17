@@ -1,18 +1,40 @@
 import { NextResponse } from "next/server";
 import {
   createBillAlert,
-  listPendingBills,
+  listBills,
 } from "@/lib/bills/alerts";
 import { mapSupabaseError } from "@/lib/supabase/client";
-import type { ClassificationResult } from "@/lib/types";
+import type { BillAlertStatus, ClassificationResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-/** GET /api/bills — list pending payment alerts */
-export async function GET() {
+/** GET /api/bills?status=pending|paid|all — bill status report */
+export async function GET(request: Request) {
   try {
-    const bills = await listPendingBills();
-    return NextResponse.json({ bills });
+    const url = new URL(request.url);
+    const raw = (url.searchParams.get("status") || "pending").toLowerCase();
+    let status: BillAlertStatus | "all" = "PENDING_PAYMENT";
+    if (raw === "paid" || raw === "paid_and_archived") {
+      status = "PAID_AND_ARCHIVED";
+    } else if (raw === "all") {
+      status = "all";
+    } else if (raw === "pending" || raw === "pending_payment") {
+      status = "PENDING_PAYMENT";
+    }
+
+    const bills = await listBills({ status });
+    const pending = bills.filter((b) => b.status === "PENDING_PAYMENT").length;
+    const paid = bills.filter((b) => b.status === "PAID_AND_ARCHIVED").length;
+
+    return NextResponse.json({
+      bills,
+      summary: {
+        total: bills.length,
+        unpaid: status === "all" ? pending : status === "PENDING_PAYMENT" ? bills.length : pending,
+        paid: status === "all" ? paid : status === "PAID_AND_ARCHIVED" ? bills.length : paid,
+        filter: raw,
+      },
+    });
   } catch (e) {
     console.error("[bills/GET]", e);
     return NextResponse.json(

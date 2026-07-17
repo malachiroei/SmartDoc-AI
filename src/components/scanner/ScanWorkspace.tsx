@@ -44,13 +44,10 @@ const CameraViewfinder = dynamic(
 );
 
 type Mode = "camera" | "review";
-export type ScanKind = "document" | "personal";
 
 type Props = {
   onSave: (pages: ScannedPage[], format: ExportFormat) => void;
   onCancel?: () => void;
-  /** Pre-select personal vault mode (e.g. /scan?kind=personal) */
-  defaultScanKind?: ScanKind;
 };
 
 async function processPage(
@@ -64,18 +61,9 @@ async function processPage(
   return canvasToDataUrl(filtered, "image/jpeg", 0.92);
 }
 
-function stampPersonal(
-  pages: ScannedPage[],
-  kind: ScanKind
-): ScannedPage[] {
-  const force = kind === "personal";
-  return pages.map((p) => ({ ...p, forcePersonalDoc: force }));
-}
-
 export function ScanWorkspace({
   onSave,
   onCancel,
-  defaultScanKind = "document",
 }: Props) {
   const [mode, setMode] = useState<Mode>("camera");
   const [pages, setPages] = useState<ScannedPage[]>([]);
@@ -83,15 +71,10 @@ export function ScanWorkspace({
   const [draftOriginal, setDraftOriginal] = useState<string | null>(null);
   const [draftCorners, setDraftCorners] = useState<Quad | null>(null);
   const [draftFileName, setDraftFileName] = useState<string | undefined>();
-  const [filter, setFilter] = useState<ScanFilter>("magic");
+  const [filter, setFilter] = useState<ScanFilter>("original");
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [format, setFormat] = useState<ExportFormat>("pdf");
-  const [scanKind, setScanKind] = useState<ScanKind>(defaultScanKind);
-
-  useEffect(() => {
-    setScanKind(defaultScanKind);
-  }, [defaultScanKind]);
 
   const active = pages.find((p) => p.id === activeId) ?? null;
 
@@ -143,7 +126,6 @@ export function ScanWorkspace({
             corners,
             createdAt: Date.now(),
             sourceFileName: file.name,
-            forcePersonalDoc: scanKind === "personal",
           });
         }
 
@@ -185,7 +167,6 @@ export function ScanWorkspace({
       corners: draftCorners,
       createdAt: Date.now(),
       sourceFileName: draftFileName,
-      forcePersonalDoc: scanKind === "personal",
     };
   };
 
@@ -222,7 +203,7 @@ export function ScanWorkspace({
       }
       if (nextPages.length === 0) return;
       clearDraft();
-      onSave(stampPersonal(nextPages, scanKind), format);
+      onSave(nextPages, format);
     } finally {
       setBusy(false);
     }
@@ -264,42 +245,8 @@ export function ScanWorkspace({
     });
   };
 
-  const ScanKindToggle = (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/80 p-3 space-y-2">
-      <p className="text-xs text-[var(--fg-muted)]">{he.scanner.scanTypeLabel}</p>
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => setScanKind("document")}
-          className={cn(
-            "rounded-xl border px-3 py-2.5 text-sm text-start transition-colors",
-            scanKind === "document"
-              ? "border-teal-400/50 bg-teal-400/15 text-teal-100"
-              : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
-          )}
-        >
-          {he.scanner.scanTypeDocument}
-        </button>
-        <button
-          type="button"
-          onClick={() => setScanKind("personal")}
-          className={cn(
-            "rounded-xl border px-3 py-2.5 text-sm text-start transition-colors",
-            scanKind === "personal"
-              ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-100"
-              : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
-          )}
-        >
-          {he.scanner.scanTypePersonal}
-        </button>
-      </div>
-    </div>
-  );
-
   return (
     <div className="flex flex-col gap-4" dir="rtl">
-      {ScanKindToggle}
-
       {mode === "camera" && (
         <>
           <CameraViewfinder onCapture={handleCapture} />
@@ -466,7 +413,7 @@ export function ScanWorkspace({
           <Button
             className="w-full"
             size="lg"
-            onClick={() => onSave(stampPersonal(pages, scanKind), format)}
+            onClick={() => onSave(pages, format)}
             disabled={pages.length === 0}
           >
             <Sparkles className="h-5 w-5" />

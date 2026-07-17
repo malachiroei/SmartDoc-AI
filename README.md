@@ -45,22 +45,28 @@ Copy `.env.example` → `.env.local` and fill in:
 Connect Drive once via `/api/auth/google` (stores an httpOnly session cookie).
 Without credentials, APIs run in **demo mode**.
 
-### Vercel
+### Vercel (Production)
 
-Set the same Google vars in the Vercel project (Production + Preview):
+1. **Environment variables** (Production + Preview):
 
-```bash
-vercel login
-vercel link
-vercel env add GOOGLE_CLIENT_ID
-vercel env add GOOGLE_CLIENT_SECRET
-# optional:
-vercel env add GOOGLE_REFRESH_TOKEN
-vercel env add NEXT_PUBLIC_APP_URL
-```
+| Variable | Required |
+|----------|----------|
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ |
+| `GEMINI_API_KEY` (+ `AI_PROVIDER=gemini`) | ✅ for classify |
+| `GOOGLE_CLIENT_ID` | ✅ |
+| `GOOGLE_CLIENT_SECRET` | ✅ |
+| `NEXT_PUBLIC_APP_URL` | ✅ set to public URL, e.g. `https://your-app.vercel.app` |
+| `GOOGLE_REDIRECT_URI` | Optional explicit callback URL |
 
-Also add the OAuth redirect URI in Google Cloud Console:
-`https://<your-domain>/api/auth/google/callback`
+2. **Google Cloud Console → Credentials → OAuth client**  
+   Authorized redirect URIs must include **both**:
+   - `http://localhost:3000/api/auth/google/callback`
+   - `https://<your-production-domain>/api/auth/google/callback`
+
+3. After deploy: open the live site → **חיבור Google Drive** (navbar) and consent again (scopes include Drive + Gmail).
+
+4. Deploy: `vercel --prod` (or push the connected Git branch).
 
 ## Project layout
 

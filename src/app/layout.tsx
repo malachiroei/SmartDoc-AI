@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Heebo, Fraunces, JetBrains_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/ui/Toast";
+import { ServiceWorkerGuard } from "@/components/layout/ServiceWorkerGuard";
 import "./globals.css";
 
 const heebo = Heebo({
@@ -50,6 +51,7 @@ export default function RootLayout({
       className={`${heebo.variable} ${fraunces.variable} ${jetbrains.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col" dir="rtl">
+        <ServiceWorkerGuard />
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

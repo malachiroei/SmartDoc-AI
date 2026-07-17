@@ -46,6 +46,18 @@ export async function fetchJson<T = Record<string, unknown>>(
   return { data, response };
 }
 
+export class ApiRequestError extends Error {
+  status: number;
+  authUrl?: string;
+
+  constructor(message: string, status: number, authUrl?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.authUrl = authUrl;
+  }
+}
+
 export async function fetchJsonOk<T = Record<string, unknown>>(
   path: string,
   options: FetchJsonOptions = {}
@@ -58,7 +70,9 @@ export async function fetchJsonOk<T = Record<string, unknown>>(
       typeof record.error === "string"
         ? record.error
         : he.errors.serverError;
-    throw new Error(apiError);
+    const authUrl =
+      typeof record.authUrl === "string" ? record.authUrl : undefined;
+    throw new ApiRequestError(apiError, response.status, authUrl);
   }
 
   return data;

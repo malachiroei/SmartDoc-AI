@@ -100,7 +100,15 @@ export function GmailIngestPanel({ onIngested }: Props) {
               {" "}של{" "}
               <span className="font-semibold text-teal-200">{p.vendor}</span>
               {p.folder && ` → ${p.folder}`}
-              {p.billAlert && " · חשבון פתוח"}
+              {p.billAlert ? (
+                <span className="ms-2 inline-flex rounded-md border border-amber-400/40 bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-100">
+                  {he.gmail.unpaidBadge}
+                </span>
+              ) : p.doc_type === "Receipt" ? (
+                <span className="ms-2 inline-flex rounded-md border border-emerald-400/40 bg-emerald-400/15 px-1.5 py-0.5 text-[10px] text-emerald-100">
+                  {he.gmail.paidBadge}
+                </span>
+              ) : null}
             </div>
           ))}
         </div>

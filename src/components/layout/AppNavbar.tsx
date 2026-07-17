@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { he } from "@/lib/i18n/he";
 import { cn } from "@/lib/utils";
+import { GoogleConnectButtonLazy } from "./GoogleConnectButtonLazy";
 
 export type NavHref = "/" | "/scan" | "/vault" | "/bills" | "/gmail";
 
@@ -47,9 +48,12 @@ export function AppNavbar() {
               <span className="text-teal-400"> AI</span>
             </span>
           </Link>
-          <span className="text-[10px] sm:text-[11px] tracking-wide text-[var(--fg-muted)] font-[family-name:var(--font-mono)] text-left shrink min-w-0 truncate">
-            {he.phase}
-          </span>
+          <div className="flex items-center gap-2 min-w-0">
+            <GoogleConnectButtonLazy />
+            <span className="hidden md:inline text-[10px] sm:text-[11px] tracking-wide text-[var(--fg-muted)] font-[family-name:var(--font-mono)] text-left shrink min-w-0 truncate">
+              {he.phase}
+            </span>
+          </div>
         </div>
 
         <nav

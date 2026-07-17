@@ -17,12 +17,13 @@ import {
   uploadPagesToDrive,
   upsertRoutingRule,
 } from "@/lib/drive/actions";
-import { fetchJsonOk } from "@/lib/api/client-fetch";
+import { fetchJsonOk, ApiRequestError } from "@/lib/api/client-fetch";
 import { createBillFromClassification } from "@/lib/bills/client";
 import { createVaultFromClassification } from "@/lib/vault/client";
 import { submitClassificationFeedback } from "@/lib/ai/feedback-client";
 import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 import { sanitizePersonalClassification } from "@/lib/ai/personal";
+import { startGoogleOAuth } from "@/lib/google/client";
 import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -87,7 +88,6 @@ export function PostScanOrchestrator({
           .map((p) => p.sourceFileName)
           .filter(Boolean)
           .join(" ");
-        const forcePersonal = pages.some((p) => p.forcePersonalDoc);
         const classifyData = await fetchJsonOk<ClassificationResult & { error?: string }>(
           "/api/ai/classify",
           {
@@ -96,10 +96,7 @@ export function PostScanOrchestrator({
             body: JSON.stringify({
               imageBase64,
               fileName: fileNameHint || undefined,
-              hint: forcePersonal
-                ? "תעודה אישית רישיון דרכון זהות"
-                : fileNameHint || undefined,
-              forcePersonal,
+              hint: fileNameHint || undefined,
             }),
             networkError: he.classify.failed,
           }
@@ -115,12 +112,12 @@ export function PostScanOrchestrator({
           is_unpaid_bill: classifyData.is_unpaid_bill,
           amount: classifyData.amount,
           due_date: classifyData.due_date,
-          is_personal_doc: classifyData.is_personal_doc || forcePersonal,
+          is_personal_doc: Boolean(classifyData.is_personal_doc),
           document_number: classifyData.document_number,
           expiration_date: classifyData.expiration_date,
           tags: classifyData.tags,
         };
-        if (result.is_personal_doc || forcePersonal) {
+        if (result.is_personal_doc) {
           Object.assign(
             result,
             sanitizePersonalClassification(result, null, { fillDefaults: false })
@@ -137,13 +134,12 @@ export function PostScanOrchestrator({
               pages,
               format,
               folderId: folder.id,
-              fileBase: makeScanFileBase(),
+              fileBase: makeScanFileBase(result),
             });
             if (cancelled) return;
             const previewUrl = pages[0]?.processedDataUrl ?? null;
             const saved = await createVaultFromClassification(result, uploaded, {
               previewUrl,
-              forcePersonal: true,
             });
             toast(
               he.vault.vaultSaved(
@@ -160,6 +156,25 @@ export function PostScanOrchestrator({
             return;
           } catch (vaultErr) {
             console.warn("[vault auto-file]", vaultErr);
+            const needAuth =
+              vaultErr instanceof ApiRequestError
+                ? vaultErr.status === 401
+                : /not authenticated|google drive/i.test(
+                    vaultErr instanceof Error
+                      ? vaultErr.message
+                      : String(vaultErr)
+                  );
+            if (needAuth) {
+              toast(he.google.needAuth, "default");
+              // Offer immediate OAuth — user can also use the navbar button
+              if (
+                typeof window !== "undefined" &&
+                window.confirm(`${he.google.needAuth}\n\n${he.google.connect}?`)
+              ) {
+                startGoogleOAuth("/scan");
+                return;
+              }
+            }
             setBusy(false);
             // Fall through to normal routing on failure
           }
@@ -186,7 +201,7 @@ export function PostScanOrchestrator({
             pages,
             format,
             folderId: found.target_folder_id,
-            fileBase: makeScanFileBase(),
+            fileBase: makeScanFileBase(result),
           });
           if (cancelled) return;
           await maybeBillAlert(result, uploaded);
@@ -255,7 +270,6 @@ export function PostScanOrchestrator({
     try {
       const doc = await createVaultFromClassification(cls, driveFile, {
         previewUrl: pages[0]?.processedDataUrl ?? null,
-        forcePersonal: true,
       });
       if (doc) {
         toast(he.vault.vaultSaved(doc.title), "success");
@@ -344,7 +358,7 @@ export function PostScanOrchestrator({
         pages,
         format,
         folderId: rule.target_folder_id,
-        fileBase: makeScanFileBase(),
+        fileBase: makeScanFileBase(corrected),
       });
       await maybeBillAlert(corrected, uploaded);
       await maybeVaultSave(corrected, uploaded);
@@ -377,7 +391,7 @@ export function PostScanOrchestrator({
         pages,
         format,
         folderId: folder.id,
-        fileBase: makeScanFileBase(),
+        fileBase: makeScanFileBase(corrected),
       });
       await maybeBillAlert(corrected, uploaded);
       await maybeVaultSave(corrected, uploaded);

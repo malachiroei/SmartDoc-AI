@@ -10,12 +10,24 @@ function isMissingBillAlertsTable(error: { message?: string } | null): boolean {
 }
 
 export async function listPendingBills(): Promise<BillAlert[]> {
+  return listBills({ status: "PENDING_PAYMENT" });
+}
+
+export async function listBills(opts?: {
+  status?: BillAlert["status"] | "all";
+}): Promise<BillAlert[]> {
   const supabase = getSupabase();
-  const { data, error } = await supabase
+  let query = supabase
     .from("bill_alerts")
     .select("*")
-    .eq("status", "PENDING_PAYMENT")
     .order("due_date", { ascending: true, nullsFirst: false });
+
+  const status = opts?.status ?? "PENDING_PAYMENT";
+  if (status !== "all") {
+    query = query.eq("status", status);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     if (isMissingBillAlertsTable(error)) {

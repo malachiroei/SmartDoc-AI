@@ -3,6 +3,8 @@ import { exportPages } from "@/lib/image/export";
 import { fetchJsonOk } from "@/lib/api/client-fetch";
 import { he } from "@/lib/i18n/he";
 
+export { makeScanFileBase, makeScanFileName, sanitizeFileBase } from "@/lib/drive/filename";
+
 export async function uploadPagesToDrive(opts: {
   pages: ScannedPage[];
   format: ExportFormat;
@@ -54,9 +56,4 @@ export async function upsertRoutingRule(opts: {
     body: JSON.stringify(opts),
     networkError: he.toasts.ruleSaveFailed,
   });
-}
-
-export function makeScanFileBase() {
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  return `SmartDoc-${stamp}`;
 }

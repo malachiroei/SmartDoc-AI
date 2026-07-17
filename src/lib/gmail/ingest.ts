@@ -6,7 +6,8 @@ import type { ClassificationResult, RoutingRule } from "@/lib/types";
 import { classifyBuffer } from "@/lib/ai/classify";
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
 import { uploadBufferToDrive, ensureDriveFolder } from "@/lib/drive/server";
-import { getGoogleAccessToken } from "@/lib/google/token";
+import { makeScanFileName } from "@/lib/drive/filename";
+import { resolveGoogleBearerToken } from "@/lib/google/token";
 
 const GMAIL_QUERY =
   'is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR חשבון) has:attachment';
@@ -24,10 +25,7 @@ type ProcessedAttachment = {
   demo?: boolean;
 };
 
-async function gmailFetch(path: string, init?: RequestInit) {
-  const token = getGoogleAccessToken();
-  if (!token) return null;
-
+async function gmailFetch(token: string, path: string, init?: RequestInit) {
   const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
     ...init,
     headers: {
@@ -109,8 +107,8 @@ async function lookupRule(vendor: string): Promise<RoutingRule | null> {
   return (data as RoutingRule) ?? null;
 }
 
-async function markMessageRead(messageId: string) {
-  await gmailFetch(`/messages/${messageId}/modify`, {
+async function markMessageRead(token: string, messageId: string) {
+  await gmailFetch(token, `/messages/${messageId}/modify`, {
     method: "POST",
     body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
   });
@@ -167,12 +165,13 @@ async function demoIngest(): Promise<IngestResult> {
 }
 
 export async function ingestGmailInbox(): Promise<IngestResult> {
-  const token = getGoogleAccessToken();
+  const token = await resolveGoogleBearerToken();
   if (!token) {
     return demoIngest();
   }
 
   const list = (await gmailFetch(
+    token,
     `/messages?q=${encodeURIComponent(GMAIL_QUERY)}&maxResults=10`
   )) as { messages?: GmailMessageRef[] };
 
@@ -181,7 +180,7 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
   const notifications: string[] = [];
 
   for (const msgRef of messages) {
-    const full = await gmailFetch(`/messages/${msgRef.id}?format=full`);
+    const full = await gmailFetch(token, `/messages/${msgRef.id}?format=full`);
     const attachments = extractAttachments(full.payload ?? {});
     let messageHandled = false;
 
@@ -191,6 +190,7 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
         buffer = decodeBase64Url(att.data);
       } else if (att.attachmentId) {
         const attRes = await gmailFetch(
+          token,
           `/messages/${msgRef.id}/attachments/${att.attachmentId}`
         );
         buffer = decodeBase64Url(attRes.data);
@@ -263,7 +263,7 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
     }
 
     if (messageHandled) {
-      await markMessageRead(msgRef.id);
+      await markMessageRead(token, msgRef.id);
     }
   }
 
@@ -299,9 +299,17 @@ export async function classifyAndProcessAttachment(
     folderId = folder.id;
   }
 
+  const ext =
+    mimeType.includes("pdf") || /\.pdf$/i.test(fileName)
+      ? "pdf"
+      : mimeType.includes("png")
+        ? "png"
+        : "jpg";
+  const smartName = makeScanFileName(result, ext);
+
   const uploaded = await uploadBufferToDrive({
     buffer,
-    fileName,
+    fileName: smartName,
     mimeType,
     folderId,
   });

@@ -7,7 +7,6 @@ import type { ExportFormat, ScannedPage } from "@/lib/types";
 import { AppNavbar } from "@/components/layout/AppNavbar";
 import { PostScanOrchestrator } from "@/components/actions/PostScanOrchestrator";
 import { he } from "@/lib/i18n/he";
-import type { ScanKind } from "@/components/scanner/ScanWorkspace";
 
 /** Interactive scanner — client-only to avoid SSR/hydration mismatch */
 const ScanWorkspace = dynamic(
@@ -23,28 +22,14 @@ const ScanWorkspace = dynamic(
   }
 );
 
-function readScanKindFromLocation(): ScanKind {
-  if (typeof window === "undefined") return "document";
-  try {
-    const kind = new URLSearchParams(window.location.search).get("kind");
-    if (kind === "personal" || kind === "vault") return "personal";
-  } catch {
-    /* ignore */
-  }
-  return "document";
-}
-
 export default function ScanPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [defaultScanKind, setDefaultScanKind] =
-    useState<ScanKind>("document");
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
-    setDefaultScanKind(readScanKindFromLocation());
     setMounted(true);
   }, []);
 
@@ -65,7 +50,6 @@ export default function ScanPage() {
             </div>
           ) : (
             <ScanWorkspace
-              defaultScanKind={defaultScanKind}
               onSave={(saved, fmt) => {
                 setPages(saved);
                 setFormat(fmt);
@@ -84,7 +68,7 @@ export default function ScanPage() {
         onClose={() => setModalOpen(false)}
         onDone={() => {
           setPages([]);
-          router.push(defaultScanKind === "personal" ? "/vault" : "/");
+          router.push("/");
         }}
       />
     </div>

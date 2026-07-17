@@ -3,9 +3,16 @@ import type { BillAlert, ClassificationResult } from "@/lib/types";
 import { he } from "@/lib/i18n/he";
 
 export async function fetchPendingBills(): Promise<BillAlert[]> {
-  const data = await fetchJsonOk<{ bills: BillAlert[] }>("/api/bills", {
-    networkError: he.bills.loadError,
-  });
+  return fetchBills("pending");
+}
+
+export async function fetchBills(
+  status: "pending" | "paid" | "all" = "pending"
+): Promise<BillAlert[]> {
+  const data = await fetchJsonOk<{ bills: BillAlert[] }>(
+    `/api/bills?status=${encodeURIComponent(status)}`,
+    { networkError: he.bills.loadError }
+  );
   return data.bills;
 }
 

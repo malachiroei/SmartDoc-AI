@@ -159,7 +159,7 @@ export function VaultDashboard({ refreshKey }: Props) {
             <p className="text-sm text-[var(--fg-muted)]">{he.vault.subtitle}</p>
           </div>
         </div>
-        <Link href="/scan?kind=personal">
+        <Link href="/scan">
           <Button variant="secondary" size="sm">
             <ScanLine className="h-4 w-4" />
             סריקת תעודה לכספת
