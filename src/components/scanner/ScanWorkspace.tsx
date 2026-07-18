@@ -16,6 +16,7 @@ import type { ExportFormat, Quad, ScanFilter, ScannedPage } from "@/lib/types";
 import {
   canvasToDataUrl,
   defaultQuad,
+  detectCornersFromImage,
   fullFrameQuad,
   loadImage,
   warpPerspective,
@@ -116,7 +117,11 @@ export function ScanWorkspace({
         const newPages: ScannedPage[] = [];
         for (const dataUrl of pageUrls) {
           const img = await loadImage(dataUrl);
-          const corners = defaultQuad(img.naturalWidth, img.naturalHeight, 0.02);
+          const detected = detectCornersFromImage(img, 0.32);
+          const corners =
+            detected.confidence >= 0.32
+              ? detected.quad
+              : defaultQuad(img.naturalWidth, img.naturalHeight, 0.02);
           const processed = await processPage(dataUrl, corners, filter);
           newPages.push({
             id: nanoid(),
@@ -144,8 +149,13 @@ export function ScanWorkspace({
       });
 
       const img = await loadImage(dataUrl);
+      const detected = detectCornersFromImage(img, 0.32);
       setDraftOriginal(dataUrl);
-      setDraftCorners(defaultQuad(img.naturalWidth, img.naturalHeight, 0.06));
+      setDraftCorners(
+        detected.confidence >= 0.32
+          ? detected.quad
+          : defaultQuad(img.naturalWidth, img.naturalHeight, 0.06)
+      );
       setDraftFileName(file.name);
       setMode("review");
     } catch (e) {

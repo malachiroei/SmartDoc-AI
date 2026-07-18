@@ -184,6 +184,72 @@ export async function ensureDriveFolder(
   return findOrCreateFolder(auth.drive, name, parent);
 }
 
+/** Move a Drive file into a new parent folder and optionally rename it. */
+export async function moveAndRenameDriveFile(opts: {
+  fileId: string;
+  newName: string;
+  newParentId: string;
+}): Promise<DriveUploadResult> {
+  const auth = await getAuthenticatedDrive();
+  if (!auth) {
+    return {
+      id: opts.fileId,
+      name: opts.newName,
+      webViewLink: `https://drive.google.com/file/d/${opts.fileId}/view`,
+      folderId: opts.newParentId,
+      demo: true,
+    };
+  }
+
+  if (opts.fileId.startsWith("demo-")) {
+    return {
+      id: opts.fileId,
+      name: opts.newName,
+      webViewLink: `https://drive.google.com/file/d/${opts.fileId}/view`,
+      folderId: opts.newParentId,
+      demo: true,
+    };
+  }
+
+  const { drive } = auth;
+  const parentId = await resolveUploadFolderId(drive, opts.newParentId);
+
+  const meta = await drive.files.get({
+    fileId: opts.fileId,
+    fields: "id,name,parents,webViewLink",
+  });
+
+  const previousParents = (meta.data.parents ?? []).join(",");
+
+  const updated = await drive.files.update({
+    fileId: opts.fileId,
+    addParents: parentId,
+    removeParents: previousParents || undefined,
+    requestBody: { name: opts.newName },
+    fields: "id,name,webViewLink",
+  });
+
+  return {
+    id: updated.data.id ?? opts.fileId,
+    name: updated.data.name ?? opts.newName,
+    webViewLink:
+      updated.data.webViewLink ??
+      `https://drive.google.com/file/d/${opts.fileId}/view`,
+    folderId: parentId,
+    demo: false,
+  };
+}
+
+export async function trashDriveFile(fileId: string): Promise<void> {
+  if (!fileId || fileId.startsWith("demo-")) return;
+  const auth = await getAuthenticatedDrive();
+  if (!auth) return;
+  await auth.drive.files.update({
+    fileId,
+    requestBody: { trashed: true },
+  });
+}
+
 export async function assertDriveAuthenticated(): Promise<boolean> {
   try {
     await requireDriveAuth();

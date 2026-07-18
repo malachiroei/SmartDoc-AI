@@ -6,6 +6,7 @@ import { ingestGmail } from "@/lib/bills/client";
 import { he } from "@/lib/i18n/he";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { PendingFilingsPanel } from "@/components/gmail/PendingFilingsPanel";
 
 type ProcessedItem = {
   fileName: string;
@@ -13,6 +14,8 @@ type ProcessedItem = {
   doc_type: string;
   folder?: string;
   billAlert?: boolean;
+  pending?: boolean;
+  autonomous?: boolean;
 };
 
 type Props = {
@@ -22,6 +25,7 @@ type Props = {
 export function GmailIngestPanel({ onIngested }: Props) {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [pendingKey, setPendingKey] = useState(0);
   const [lastResult, setLastResult] = useState<{
     scanned: number;
     processed: ProcessedItem[];
@@ -48,6 +52,7 @@ export function GmailIngestPanel({ onIngested }: Props) {
         toast(he.gmail.lastScan(result.scanned), "success");
       }
 
+      setPendingKey((k) => k + 1);
       onIngested?.();
     } catch (e) {
       toast(e instanceof Error ? e.message : he.gmail.ingestError);
@@ -57,62 +62,83 @@ export function GmailIngestPanel({ onIngested }: Props) {
   };
 
   return (
-    <div className="space-y-5" dir="rtl">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-400/15 text-sky-300">
-          <Mail className="h-5 w-5" />
+    <div className="space-y-8" dir="rtl">
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-400/15 text-sky-300">
+            <Mail className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-display)] text-xl">
+              {he.gmail.title}
+            </h2>
+            <p className="text-sm text-[var(--fg-muted)]">{he.gmail.subtitle}</p>
+          </div>
         </div>
-        <div>
-          <h2 className="font-[family-name:var(--font-display)] text-xl">
-            {he.gmail.title}
-          </h2>
-          <p className="text-sm text-[var(--fg-muted)]">{he.gmail.subtitle}</p>
-        </div>
+
+        <Button
+          size="lg"
+          className="w-full sm:w-auto"
+          onClick={() => void runIngest()}
+          disabled={busy}
+        >
+          {busy ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" /> {he.gmail.ingesting}
+            </>
+          ) : (
+            <>
+              <Inbox className="h-5 w-5" /> {he.gmail.ingest}
+            </>
+          )}
+        </Button>
+
+        {lastResult?.demo && (
+          <p className="text-xs text-[var(--fg-muted)] rounded-xl border border-[var(--border)] px-3 py-2">
+            {he.gmail.demoNote}
+          </p>
+        )}
+
+        {lastResult && lastResult.processed.length > 0 && (
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2">
+            <p className="text-sm font-medium">{he.gmail.processed}</p>
+            {lastResult.processed.map((p, i) => (
+              <div
+                key={i}
+                className="text-sm text-[var(--fg-muted)] border-t border-[var(--border)] pt-2 first:border-0 first:pt-0"
+              >
+                <span className="font-semibold text-[var(--fg)]">{p.doc_type}</span>
+                {" "}של{" "}
+                <span className="font-semibold text-teal-200">{p.vendor}</span>
+                {p.folder && ` → ${p.folder}`}
+                {p.pending ? (
+                  <span className="ms-2 inline-flex rounded-md border border-amber-400/40 bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-100">
+                    {he.gmail.pendingBadge}
+                  </span>
+                ) : p.autonomous ? (
+                  <span className="ms-2 inline-flex rounded-md border border-teal-400/40 bg-teal-400/15 px-1.5 py-0.5 text-[10px] text-teal-100">
+                    {he.gmail.autoBadge}
+                  </span>
+                ) : null}
+                {p.billAlert ? (
+                  <span className="ms-2 inline-flex rounded-md border border-amber-400/40 bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-100">
+                    {he.gmail.unpaidBadge}
+                  </span>
+                ) : p.doc_type === "Receipt" ? (
+                  <span className="ms-2 inline-flex rounded-md border border-emerald-400/40 bg-emerald-400/15 px-1.5 py-0.5 text-[10px] text-emerald-100">
+                    {he.gmail.paidBadge}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <Button size="lg" className="w-full sm:w-auto" onClick={() => void runIngest()} disabled={busy}>
-        {busy ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" /> {he.gmail.ingesting}
-          </>
-        ) : (
-          <>
-            <Inbox className="h-5 w-5" /> {he.gmail.ingest}
-          </>
-        )}
-      </Button>
-
-      {lastResult?.demo && (
-        <p className="text-xs text-[var(--fg-muted)] rounded-xl border border-[var(--border)] px-3 py-2">
-          {he.gmail.demoNote}
-        </p>
-      )}
-
-      {lastResult && lastResult.processed.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-2">
-          <p className="text-sm font-medium">{he.gmail.processed}</p>
-          {lastResult.processed.map((p, i) => (
-            <div
-              key={i}
-              className="text-sm text-[var(--fg-muted)] border-t border-[var(--border)] pt-2 first:border-0 first:pt-0"
-            >
-              <span className="font-semibold text-[var(--fg)]">{p.doc_type}</span>
-              {" "}של{" "}
-              <span className="font-semibold text-teal-200">{p.vendor}</span>
-              {p.folder && ` → ${p.folder}`}
-              {p.billAlert ? (
-                <span className="ms-2 inline-flex rounded-md border border-amber-400/40 bg-amber-400/15 px-1.5 py-0.5 text-[10px] text-amber-100">
-                  {he.gmail.unpaidBadge}
-                </span>
-              ) : p.doc_type === "Receipt" ? (
-                <span className="ms-2 inline-flex rounded-md border border-emerald-400/40 bg-emerald-400/15 px-1.5 py-0.5 text-[10px] text-emerald-100">
-                  {he.gmail.paidBadge}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
+      <PendingFilingsPanel
+        refreshKey={pendingKey}
+        onChanged={() => onIngested?.()}
+      />
     </div>
   );
 }

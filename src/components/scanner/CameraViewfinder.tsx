@@ -40,6 +40,7 @@ export function CameraViewfinder({
   const manualLockRef = useRef(false);
   const dragIndexRef = useRef<number | null>(null);
   const videoSizeRef = useRef({ w: 0, h: 0 });
+  const smoothHistoryRef = useRef<Quad[]>([]);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -243,9 +244,9 @@ export function CameraViewfinder({
       if (w && h) {
         videoSizeRef.current = { w, h };
 
-        if (!manualLockRef.current && ts - lastDetect > 220) {
+        if (!manualLockRef.current && ts - lastDetect > 180) {
           lastDetect = ts;
-          const sw = 320;
+          const sw = 400;
           const sh = Math.round((h / w) * sw);
           sample.width = sw;
           sample.height = sh;
@@ -253,28 +254,33 @@ export function CameraViewfinder({
           const img = sampleCtx.getImageData(0, 0, sw, sh);
           const detected = detectDocumentEdges(img, sw, sh);
 
-          if (detected && detected.confidence >= EDGE_CONFIDENCE_MIN) {
+          if (detected && detected.confidence >= 0.28) {
             const scaleX = w / sw;
             const scaleY = h / sh;
             const scaled = detected.quad.map((p: Point) => ({
               x: p.x * scaleX,
               y: p.y * scaleY,
             })) as Quad;
-            cornersRef.current = scaled;
-            setLiveCorners(scaled);
-            setEdgeConfidence(detected.confidence);
-          } else if (detected && detected.confidence >= 0.3) {
-            // Weak but usable — still crop (CamScanner-like) rather than full desk
-            const scaleX = w / sw;
-            const scaleY = h / sh;
-            const scaled = detected.quad.map((p: Point) => ({
-              x: p.x * scaleX,
-              y: p.y * scaleY,
-            })) as Quad;
-            cornersRef.current = scaled;
-            setLiveCorners(scaled);
+
+            // Temporal smoothing — less flicker, more CamScanner-like lock
+            const hist = smoothHistoryRef.current;
+            hist.push(scaled);
+            if (hist.length > 4) hist.shift();
+            const smoothed = hist[0].map((_, i) => {
+              let sx = 0;
+              let sy = 0;
+              for (const q of hist) {
+                sx += q[i].x;
+                sy += q[i].y;
+              }
+              return { x: sx / hist.length, y: sy / hist.length };
+            }) as Quad;
+
+            cornersRef.current = smoothed;
+            setLiveCorners(smoothed);
             setEdgeConfidence(detected.confidence);
           } else {
+            smoothHistoryRef.current = [];
             cornersRef.current = defaultQuad(w, h, 0.06);
             setLiveCorners(cornersRef.current);
             setEdgeConfidence(detected?.confidence ?? 0);
@@ -304,8 +310,14 @@ export function CameraViewfinder({
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
 
+    // Keep user-adjusted corners (drag / Full Page) — don't overwrite on shutter
+    if (manualLockRef.current && cornersRef.current) {
+      onCapture(dataUrl, cornersRef.current);
+      return;
+    }
+
     // CamScanner-style: re-detect on the still frame at higher quality
-    const refined = detectCornersFromCanvas(canvas, 0.35);
+    const refined = detectCornersFromCanvas(canvas, 0.32);
     cornersRef.current = refined.quad;
     setLiveCorners(refined.quad);
     setEdgeConfidence(refined.confidence);
@@ -318,6 +330,7 @@ export function CameraViewfinder({
   const resumeAutoDetect = () => {
     manualLockRef.current = false;
     setManualLock(false);
+    smoothHistoryRef.current = [];
   };
 
   if (error) {

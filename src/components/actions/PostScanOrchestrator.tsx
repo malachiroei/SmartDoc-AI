@@ -17,13 +17,11 @@ import {
   uploadPagesToDrive,
   upsertRoutingRule,
 } from "@/lib/drive/actions";
-import { fetchJsonOk, ApiRequestError } from "@/lib/api/client-fetch";
+import { fetchJsonOk } from "@/lib/api/client-fetch";
 import { createBillFromClassification } from "@/lib/bills/client";
 import { createVaultFromClassification } from "@/lib/vault/client";
 import { submitClassificationFeedback } from "@/lib/ai/feedback-client";
-import { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 import { sanitizePersonalClassification } from "@/lib/ai/personal";
-import { startGoogleOAuth } from "@/lib/google/client";
 import { docTypeHe, he } from "@/lib/i18n/he";
 
 type Phase = "idle" | "classifying" | "routing" | "actions";
@@ -128,61 +126,6 @@ export function PostScanOrchestrator({
         }
         setClassification(result);
 
-        // Personal vault — auto-file to מסמכים אישיים
-        if (result.is_personal_doc) {
-          setBusy(true);
-          try {
-            const folder = await createDriveFolder(PERSONAL_VAULT_FOLDER_HE);
-            const uploaded = await uploadPagesToDrive({
-              pages,
-              format,
-              folderId: folder.id,
-              fileBase: makeScanFileBase(result),
-            });
-            if (cancelled) return;
-            const previewUrl = pages[0]?.processedDataUrl ?? null;
-            const saved = await createVaultFromClassification(result, uploaded, {
-              previewUrl,
-            });
-            toast(
-              he.vault.vaultSaved(
-                saved?.title || result.summary || docTypeHe(result.doc_type)
-              ),
-              "auto"
-            );
-            setBusy(false);
-            setPhase("idle");
-            setClassification(null);
-            setRule(null);
-            onDone?.();
-            onClose();
-            return;
-          } catch (vaultErr) {
-            console.warn("[vault auto-file]", vaultErr);
-            const needAuth =
-              vaultErr instanceof ApiRequestError
-                ? vaultErr.status === 401
-                : /not authenticated|google drive/i.test(
-                    vaultErr instanceof Error
-                      ? vaultErr.message
-                      : String(vaultErr)
-                  );
-            if (needAuth) {
-              toast(he.google.needAuth, "default");
-              // Offer immediate OAuth — user can also use the navbar button
-              if (
-                typeof window !== "undefined" &&
-                window.confirm(`${he.google.needAuth}\n\n${he.google.connect}?`)
-              ) {
-                startGoogleOAuth("/scan");
-                return;
-              }
-            }
-            setBusy(false);
-            // Fall through to normal routing on failure
-          }
-        }
-
         // Memory lookup — failures must NOT skip the Smart Routing dialog
         let found: RoutingRule | null = null;
         try {
@@ -197,8 +140,8 @@ export function PostScanOrchestrator({
         if (cancelled) return;
         setRule(found);
 
-        // Autonomous branch — never for personal vault docs
-        if (found?.is_autonomous && !result.is_personal_doc) {
+        // Autonomous only after 3 approvals — file without asking
+        if (found?.is_autonomous) {
           setBusy(true);
           const uploaded = await uploadPagesToDrive({
             pages,
@@ -227,7 +170,7 @@ export function PostScanOrchestrator({
           return;
         }
 
-        // Primary interactive modal — always after successful classify
+        // Ask for folder + filename until rule is learned (3 approvals)
         setPhase("routing");
       } catch (e) {
         if (cancelled) return;
@@ -352,7 +295,10 @@ export function PostScanOrchestrator({
     }
   };
 
-  const handleFileExisting = async (corrected: ClassificationResult) => {
+  const handleFileExisting = async (
+    corrected: ClassificationResult,
+    fileBase: string
+  ) => {
     if (!rule || !classification) return;
     setBusy(true);
     try {
@@ -361,7 +307,7 @@ export function PostScanOrchestrator({
         pages,
         format,
         folderId: rule.target_folder_id,
-        fileBase: makeScanFileBase(corrected),
+        fileBase: fileBase || makeScanFileBase(corrected),
       });
       await maybeBillAlert(corrected, uploaded);
       await maybeVaultSave(corrected, uploaded);
@@ -380,7 +326,10 @@ export function PostScanOrchestrator({
     }
   };
 
-  const handleCreateNew = async (corrected: ClassificationResult) => {
+  const handleCreateNew = async (
+    corrected: ClassificationResult,
+    fileBase: string
+  ) => {
     if (!classification) return;
     setBusy(true);
     try {
@@ -394,7 +343,7 @@ export function PostScanOrchestrator({
         pages,
         format,
         folderId: folder.id,
-        fileBase: makeScanFileBase(corrected),
+        fileBase: fileBase || makeScanFileBase(corrected),
       });
       await maybeBillAlert(corrected, uploaded);
       await maybeVaultSave(corrected, uploaded);
@@ -410,7 +359,10 @@ export function PostScanOrchestrator({
     }
   };
 
-  const handleManual = async (corrected: ClassificationResult) => {
+  const handleManual = async (
+    corrected: ClassificationResult,
+    _fileBase: string
+  ) => {
     if (classification) {
       await applyCorrection(classification, corrected);
     }
@@ -418,7 +370,10 @@ export function PostScanOrchestrator({
     setPhase("actions");
   };
 
-  const handleEmailOnly = async (corrected: ClassificationResult) => {
+  const handleEmailOnly = async (
+    corrected: ClassificationResult,
+    _fileBase: string
+  ) => {
     if (classification) {
       await applyCorrection(classification, corrected);
     }
