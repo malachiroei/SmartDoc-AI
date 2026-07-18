@@ -87,13 +87,31 @@ export async function sendViaGmailApi(opts: {
 
   if (!res.ok) {
     const errText = await res.text();
-    // Missing gmail.send scope after reconnect needed
-    if (res.status === 403 || /insufficient|scope|PERMISSION/i.test(errText)) {
+
+    // Gmail API disabled in Google Cloud project (not an OAuth reconnect issue)
+    if (
+      /SERVICE_DISABLED|accessNotConfigured|has not been used in project|API has not been used/i.test(
+        errText
+      )
+    ) {
+      return {
+        ok: false,
+        reason: `gmail_api_disabled: ${errText.slice(0, 500)}`,
+      };
+    }
+
+    // Missing gmail.send / insufficient OAuth scopes
+    if (
+      /insufficient.?authentication.?scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT|Request had insufficient authentication scopes/i.test(
+        errText
+      )
+    ) {
       return {
         ok: false,
         reason: `gmail_scope: ${errText.slice(0, 400)}`,
       };
     }
+
     return { ok: false, reason: `gmail_api: ${errText.slice(0, 500)}` };
   }
 

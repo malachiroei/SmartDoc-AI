@@ -48,15 +48,23 @@ export async function POST(request: Request) {
   const from = process.env.SMTP_FROM ?? user;
 
   if (!host || !user || !pass) {
-    const needsReconnect =
-      gmail.reason.startsWith("gmail_scope") ||
-      gmail.reason === "no_google_token";
+    let error: string;
+    if (gmail.reason === "no_google_token") {
+      error =
+        "שליחת מייל דורשת חיבור Google. לחצו «חיבור Google Drive» ואשרו את ההרשאות.";
+    } else if (gmail.reason.startsWith("gmail_api_disabled")) {
+      error =
+        "Gmail API כבוי בפרויקט Google Cloud. יש להפעיל אותו בקונסול: https://console.cloud.google.com/apis/library/gmail.googleapis.com — ואז להמתין כמה דקות ולנסות שוב.";
+    } else if (gmail.reason.startsWith("gmail_scope")) {
+      error =
+        "חסרה הרשאת שליחת מייל ב-Google. לחצו «חיבור Google Drive» מחדש ואשרו את כל ההרשאות.";
+    } else {
+      error = `שליחת מייל נכשלה דרך Gmail. אפשר גם להגדיר SMTP_HOST / SMTP_USER / SMTP_PASS ב-Vercel.`;
+    }
 
     return NextResponse.json(
       {
-        error: needsReconnect
-          ? "שליחת מייל דורשת חיבור Google (עם הרשאת שליחה). לחצו «חיבור Google Drive» מחדש ואשרו את ההרשאות, או הגדירו SMTP_HOST / SMTP_USER / SMTP_PASS ב-Vercel."
-          : `שליחת מייל נכשלה דרך Gmail (${gmail.reason}). אפשר גם להגדיר SMTP ב-Vercel.`,
+        error,
         demo: true,
         configured: false,
         gmailReason: gmail.reason,
