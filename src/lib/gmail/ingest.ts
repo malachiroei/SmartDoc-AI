@@ -22,8 +22,15 @@ import {
 
 export const PENDING_REVIEW_FOLDER_HE = "ממתין לאישור";
 
+/** Keep query focused — bare "חשבון" matches too many bank emails and causes timeouts */
 const GMAIL_QUERY =
-  'is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR חשבון) has:attachment';
+  "is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR \"חשבון לתשלום\" OR unpaid) has:attachment";
+
+/** Stay under Vercel/proxy ~60s limits (Hobby often 504 earlier) */
+const MAX_MESSAGES = 3;
+const MAX_NEW_CLASSIFICATIONS = 2;
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const TIME_BUDGET_MS = 48_000;
 
 type GmailMessageRef = { id: string; threadId: string };
 
@@ -147,6 +154,9 @@ export type IngestResult = {
   demo: boolean;
   scanned: number;
   pendingCount: number;
+  /** True when we stopped early to avoid gateway timeout */
+  partial?: boolean;
+  skippedRemaining?: number;
 };
 
 /** Demo ingest — queue a pending item (no fake Vision call, no auto-file) */
@@ -206,22 +216,39 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
     return demoIngest();
   }
 
+  const started = Date.now();
+  const timeLeft = () => TIME_BUDGET_MS - (Date.now() - started);
+
   const list = (await gmailFetch(
     token,
-    `/messages?q=${encodeURIComponent(GMAIL_QUERY)}&maxResults=10`
+    `/messages?q=${encodeURIComponent(GMAIL_QUERY)}&maxResults=${MAX_MESSAGES}`
   )) as { messages?: GmailMessageRef[] };
 
   const messages = list.messages ?? [];
   const processed: ProcessedAttachment[] = [];
   const notifications: string[] = [];
   let pendingCount = 0;
+  let newClassifications = 0;
+  let skippedRemaining = 0;
+  let partial = false;
 
   for (const msgRef of messages) {
+    if (timeLeft() < 8_000) {
+      partial = true;
+      skippedRemaining += 1;
+      continue;
+    }
+
     const full = await gmailFetch(token, `/messages/${msgRef.id}?format=full`);
     const attachments = extractAttachments(full.payload ?? {});
     let messageHandled = false;
 
     for (const att of attachments) {
+      if (timeLeft() < 8_000) {
+        partial = true;
+        break;
+      }
+
       const originalName = att.filename || `gmail-${Date.now()}`;
 
       const dup = await findPendingDuplicate(msgRef.id, originalName);
@@ -241,6 +268,12 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
         continue;
       }
 
+      if (newClassifications >= MAX_NEW_CLASSIFICATIONS) {
+        partial = true;
+        skippedRemaining += 1;
+        break;
+      }
+
       let buffer: Buffer;
       if (att.data) {
         buffer = decodeBase64Url(att.data);
@@ -254,9 +287,31 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
         continue;
       }
 
-      const { result } = await classifyBuffer(buffer, att.mimeType, {
-        fileName: originalName,
-      });
+      if (buffer.length > MAX_ATTACHMENT_BYTES) {
+        notifications.push(
+          `דולג: ${originalName} גדול מדי לסיווג מהיר (${Math.round(buffer.length / 1024 / 1024)}MB)`
+        );
+        continue;
+      }
+
+      // Gemini + Drive are the slow path — budget one at a time
+      newClassifications++;
+      let result: ClassificationResult;
+      try {
+        const classified = await classifyBuffer(buffer, att.mimeType, {
+          fileName: originalName,
+        });
+        result = classified.result;
+      } catch (classifyErr) {
+        console.warn("[gmail/ingest] classify failed:", classifyErr);
+        notifications.push(
+          `סיווג נכשל עבור ${originalName}: ${
+            classifyErr instanceof Error ? classifyErr.message.slice(0, 120) : "שגיאה"
+          }`
+        );
+        continue;
+      }
+
       const rule = await lookupRule(result.vendor);
       const ext = extFromMime(att.mimeType, originalName);
       const smartName = makeScanFileName(result, ext);
@@ -336,8 +391,18 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
     }
 
     if (messageHandled) {
-      await markMessageRead(token, msgRef.id);
+      try {
+        await markMessageRead(token, msgRef.id);
+      } catch (markErr) {
+        console.warn("[gmail/ingest] mark read failed:", markErr);
+      }
     }
+  }
+
+  if (partial) {
+    notifications.push(
+      "הסריקה הושלמה חלקית (מגבלת זמן בשרת). לחצו שוב על סריקה להמשך המיילים הבאים."
+    );
   }
 
   return {
@@ -346,6 +411,8 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
     demo: false,
     scanned: messages.length,
     pendingCount,
+    partial,
+    skippedRemaining: skippedRemaining || undefined,
   };
 }
 

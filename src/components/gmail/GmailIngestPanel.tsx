@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Inbox, Loader2, Mail } from "lucide-react";
 import { ingestGmail } from "@/lib/bills/client";
+import { ApiRequestError } from "@/lib/api/client-fetch";
 import { he } from "@/lib/i18n/he";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -55,7 +56,13 @@ export function GmailIngestPanel({ onIngested }: Props) {
       setPendingKey((k) => k + 1);
       onIngested?.();
     } catch (e) {
-      toast(e instanceof Error ? e.message : he.gmail.ingestError);
+      const msg =
+        e instanceof ApiRequestError && (e.status === 504 || e.status === 408)
+          ? he.gmail.ingestTimeout
+          : e instanceof Error
+            ? e.message
+            : he.gmail.ingestError;
+      toast(msg);
     } finally {
       setBusy(false);
     }

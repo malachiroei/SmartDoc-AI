@@ -4,7 +4,7 @@ import { mapSupabaseError } from "@/lib/supabase/client";
 import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /**
  * POST /api/gmail/ingest

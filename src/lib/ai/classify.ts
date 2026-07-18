@@ -367,6 +367,7 @@ async function classifyGeminiWithRest(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(22_000),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [
@@ -412,38 +413,39 @@ async function classifyGemini(
     `[ai/classify] Gemini vision payload mime=${mime} bytes=${byteLength}`
   );
 
-  const models = resolveGeminiModels();
+  // Prefer REST (has hard timeout); try at most 2 models to avoid Vercel 504
+  const models = resolveGeminiModels().slice(0, 2);
   const errors: string[] = [];
 
   for (const modelName of models) {
     try {
-      const result = await classifyGeminiWithSdk(
+      const result = await classifyGeminiWithRest(
         key,
         modelName,
         systemPrompt,
         mime,
         base64
       );
-      console.info(`[ai/classify] Gemini SDK ok model=${modelName}`);
+      console.info(`[ai/classify] Gemini REST ok model=${modelName}`);
       return result;
-    } catch (sdkErr) {
-      const msg = sdkErr instanceof Error ? sdkErr.message : String(sdkErr);
-      console.warn(`[ai/classify] Gemini SDK ${modelName} failed:`, msg);
+    } catch (restErr) {
+      const restMsg =
+        restErr instanceof Error ? restErr.message : String(restErr);
+      console.warn(`[ai/classify] Gemini REST ${modelName} failed:`, restMsg);
 
       try {
-        const result = await classifyGeminiWithRest(
+        const result = await classifyGeminiWithSdk(
           key,
           modelName,
           systemPrompt,
           mime,
           base64
         );
-        console.info(`[ai/classify] Gemini REST ok model=${modelName}`);
+        console.info(`[ai/classify] Gemini SDK ok model=${modelName}`);
         return result;
-      } catch (restErr) {
-        const restMsg =
-          restErr instanceof Error ? restErr.message : String(restErr);
-        errors.push(`${modelName}: ${restMsg}`);
+      } catch (sdkErr) {
+        const msg = sdkErr instanceof Error ? sdkErr.message : String(sdkErr);
+        errors.push(`${modelName}: ${restMsg} | sdk: ${msg}`);
         console.warn(
           `[ai/classify] Gemini ${modelName} failed, trying next fallback…`
         );
