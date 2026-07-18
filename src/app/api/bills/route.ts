@@ -4,12 +4,16 @@ import {
   listBills,
 } from "@/lib/bills/alerts";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 import type { BillAlertStatus, ClassificationResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 /** GET /api/bills?status=pending|paid|all — bill status report */
 export async function GET(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const url = new URL(request.url);
     const raw = (url.searchParams.get("status") || "pending").toLowerCase();
@@ -46,6 +50,9 @@ export async function GET(request: Request) {
 
 /** POST /api/bills — create bill alert after scan/upload */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const body = await request.json();
     const classification = body.classification as ClassificationResult;

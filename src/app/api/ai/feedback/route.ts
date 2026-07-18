@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { recordFeedback } from "@/lib/ai/memory";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,9 @@ export const runtime = "nodejs";
  * Record a user correction to the ai_feedback_ledger for future few-shot learning.
  */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const body = await request.json();
 

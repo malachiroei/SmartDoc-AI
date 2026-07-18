@@ -5,9 +5,13 @@ import {
   dismissPendingFiling,
 } from "@/lib/gmail/ingest";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 import type { ClassificationResult } from "@/lib/types";
 
 export async function GET() {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const pending = await listPendingFilings();
     return NextResponse.json({ pending });
@@ -21,6 +25,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const body = await request.json();
     const action = String(body.action ?? "");

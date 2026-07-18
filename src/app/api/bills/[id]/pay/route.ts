@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getBillById, markBillPaid } from "@/lib/bills/alerts";
 import { uploadBufferToDrive, ensureDriveFolder } from "@/lib/drive/server";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,9 @@ type Params = { params: Promise<{ id: string }> };
  * Upload payment receipt, archive bill, update Supabase.
  */
 export async function POST(request: Request, { params }: Params) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const { id } = await params;
     const bill = await getBillById(id);

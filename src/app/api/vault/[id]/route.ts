@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deletePersonalDocument } from "@/lib/vault/documents";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** DELETE /api/vault/[id] — remove a personal vault document */
 export async function DELETE(_request: Request, context: Ctx) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const { id } = await context.params;
     if (!id?.trim()) {

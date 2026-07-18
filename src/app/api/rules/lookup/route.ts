@@ -4,12 +4,16 @@ import {
   getSupabase,
   mapSupabaseError,
 } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 /**
  * GET /api/rules/lookup?vendor=Electra
  * Memory lookup: routing_rules where vendor_or_doc_type equals AI vendor.
  */
 export async function GET(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const env = checkSupabaseEnv();
     if (!env.ok) {

@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { sendViaGmailApi } from "@/lib/gmail/send";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   const form = await request.formData();
   const file = form.get("file");
   const to = String(form.get("to") ?? "");
@@ -62,12 +66,14 @@ export async function POST(request: Request) {
       error = `שליחת מייל נכשלה דרך Gmail. אפשר גם להגדיר SMTP_HOST / SMTP_USER / SMTP_PASS ב-Vercel.`;
     }
 
+    // Log raw provider details server-side only — never send gmailReason to the client
+    console.warn("[email/send] gmail fallback:", gmail.reason.slice(0, 300));
+
     return NextResponse.json(
       {
         error,
         demo: true,
         configured: false,
-        gmailReason: gmail.reason,
       },
       { status: 503 }
     );
