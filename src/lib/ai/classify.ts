@@ -12,6 +12,7 @@ import {
   personalVaultDemoResult,
   sanitizePersonalClassification,
 } from "@/lib/ai/personal";
+import { prepareVisionPayload } from "@/lib/ai/vision-prep";
 
 export { PERSONAL_VAULT_FOLDER_HE } from "@/lib/ai/constants";
 export {
@@ -203,18 +204,27 @@ export async function classifyBuffer(
   provider: VisionProvider | "demo";
   memoryUsed?: number;
 }> {
-  const base64 = buffer.toString("base64");
-  const dataUrl = `data:${mimeType};base64,${base64}`;
+  if (!buffer || buffer.length < 64) {
+    throw new Error("קובץ מצורף ריק או קטן מדי לסיווג");
+  }
+
+  const name = (opts?.fileName || "").toLowerCase();
+  let mime = (mimeType || "application/octet-stream").split(";")[0].trim();
+  if (name.endsWith(".pdf") || mime.includes("pdf")) {
+    mime = "application/pdf";
+  } else if (name.endsWith(".png")) {
+    mime = "image/png";
+  } else if (name.endsWith(".webp")) {
+    mime = "image/webp";
+  } else if (name.match(/\.(jpe?g)$/) || mime.includes("jpeg") || mime.includes("jpg")) {
+    mime = "image/jpeg";
+  }
+
+  const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
   return classifyDocument(dataUrl, {
     fileName: opts?.fileName,
     forcePersonal: opts?.forcePersonal,
   });
-}
-
-function dataUrlParts(dataUrl: string): { mime: string; base64: string } {
-  const match = dataUrl.match(/^data:(.+?);base64,(.+)$/);
-  if (match) return { mime: match[1], base64: match[2] };
-  return { mime: "image/jpeg", base64: dataUrl.replace(/^data:.*?;base64,/, "") };
 }
 
 export type VisionProvider = "openai" | "gemini" | "anthropic";
@@ -241,7 +251,7 @@ async function classifyOpenAI(
   imageDataUrl: string,
   systemPrompt: string
 ): Promise<ClassificationResult> {
-  const { mime, base64 } = dataUrlParts(imageDataUrl);
+  const { mime, base64 } = prepareVisionPayload(imageDataUrl);
   const model = process.env.OPENAI_VISION_MODEL || "gpt-4o";
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -289,20 +299,19 @@ async function classifyOpenAI(
 
 const GEMINI_MODEL_FALLBACKS = [
   "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-flash-latest",
-  "gemini-pro-vision",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
 ] as const;
 
 function resolveGeminiModels(): string[] {
   const preferred =
     process.env.GEMINI_VISION_MODEL || process.env.GOOGLE_GEMINI_MODEL || "";
-  // Drop retired / broken aliases (e.g. gemini-1.5-flash)
-  const blocked = /gemini-1\.5|gemini-pro$/i;
-  const ordered = [
-    preferred,
-    ...GEMINI_MODEL_FALLBACKS,
-  ].filter((m) => m && !blocked.test(m));
+  // Drop retired / broken model ids
+  const blocked =
+    /gemini-1\.5|gemini-2\.0|gemini-pro-vision|gemini-pro$|gemini-flash-latest/i;
+  const ordered = [preferred, ...GEMINI_MODEL_FALLBACKS].filter(
+    (m) => m && !blocked.test(m)
+  );
   return [...new Set(ordered)];
 }
 
@@ -398,7 +407,11 @@ async function classifyGemini(
     process.env.GOOGLE_API_KEY;
   if (!key) throw new Error("Missing GEMINI_API_KEY");
 
-  const { mime, base64 } = dataUrlParts(imageDataUrl);
+  const { mime, base64, byteLength } = prepareVisionPayload(imageDataUrl);
+  console.info(
+    `[ai/classify] Gemini vision payload mime=${mime} bytes=${byteLength}`
+  );
+
   const models = resolveGeminiModels();
   const errors: string[] = [];
 
@@ -431,16 +444,9 @@ async function classifyGemini(
         const restMsg =
           restErr instanceof Error ? restErr.message : String(restErr);
         errors.push(`${modelName}: ${restMsg}`);
-        if (!isGeminiModelNotFound(sdkErr) && !isGeminiModelNotFound(restErr)) {
-          // Non-404 errors (auth, quota, etc.) — still try next model once
-          console.warn(
-            `[ai/classify] Gemini ${modelName} failed, trying next fallback…`
-          );
-        } else {
-          console.warn(
-            `[ai/classify] Model ${modelName} not found (404), trying next…`
-          );
-        }
+        console.warn(
+          `[ai/classify] Gemini ${modelName} failed, trying next fallback…`
+        );
       }
     }
   }
@@ -454,7 +460,7 @@ async function classifyAnthropic(
   imageDataUrl: string,
   systemPrompt: string
 ): Promise<ClassificationResult> {
-  const { mime, base64 } = dataUrlParts(imageDataUrl);
+  const { mime, base64 } = prepareVisionPayload(imageDataUrl);
   const model =
     process.env.ANTHROPIC_VISION_MODEL || "claude-3-5-sonnet-20241022";
 

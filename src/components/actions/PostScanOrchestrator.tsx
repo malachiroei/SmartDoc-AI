@@ -63,6 +63,7 @@ export function PostScanOrchestrator({
 
   const handleClose = () => {
     setPhase("idle");
+    setActionsTab(null);
     setClassification(null);
     setRule(null);
     setBusy(false);
