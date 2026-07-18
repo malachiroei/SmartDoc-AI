@@ -83,6 +83,8 @@ export const he = {
     correctDocType: "סוג מסמך",
     correctVendor: "ספק / מנפיק",
     correctHint: "שינוי כאן נשמר ללמידת few-shot בסריקות הבאות",
+    fileName: "שם הקובץ ב-Drive",
+    fileNameHint: "אפשרו לערוך לפני התיוק — אחרי 3 אישורים זה יהיה אוטומטי",
   },
   feedback: {
     saveError: "שמירת תיקון הסיווג נכשלה",
@@ -205,7 +207,7 @@ export const he = {
   gmail: {
     title: "סריקת Gmail",
     subtitle:
-      "מושך מיילים עם קבלות/חשבוניות, מתייק ב-Drive, ומעדכן סטטוס שולם/לא שולם.",
+      "מושך מיילים עם קבלות/חשבוניות. תיוק אוטומטי רק אחרי 3 אישורים שלכם — אחרת תאשרו שם קובץ ותיקייה.",
     ingest: "סריקת תיבת דואר נכנס",
     ingesting: "סורק מיילים…",
     ingestError: "סריקת Gmail נכשלה",
@@ -215,6 +217,23 @@ export const he = {
     demoNote: "חברו Google Drive (כולל Gmail) דרך הכפתור ב־navbar",
     unpaidBadge: "לא שולם",
     paidBadge: "שולם / קבלה",
+    pendingBadge: "ממתין לאישור",
+    autoBadge: "תויק אוטומטית",
+    pendingTitle: "ממתינים לאישור (3 שלבים)",
+    pendingSubtitle:
+      "לכל מסמך — אשרו שם קובץ ותיקייה. אחרי 3 אישורים לאותו ספק התיוק יהיה אוטומטי.",
+    pendingEmpty: "אין מסמכים ממתינים לאישור כרגע",
+    pendingLoading: "טוען ממתינים…",
+    pendingFileName: "שם המסמך",
+    pendingFolder: "תיקיית יעד ב-Drive",
+    pendingConfirm: "אישור ותיוק",
+    pendingDismiss: "דחייה",
+    pendingDismissConfirm: "לדחות את המסמך ולמחוק מהתיקייה הממתינה?",
+    pendingDismissed: "המסמך נדחה",
+    pendingLoadError: "טעינת ממתינים לאישור נכשלה",
+    pendingConfirmError: "אישור התיוק נכשל",
+    pendingDismissError: "דחיית המסמך נכשלה",
+    pendingNeedFields: "מלאו שם קובץ ותיקייה לפני האישור",
   },
   tabs: {
     home: "בית",

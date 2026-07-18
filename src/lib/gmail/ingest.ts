@@ -6,9 +6,21 @@ import type { ClassificationResult, RoutingRule } from "@/lib/types";
 import { classifyBuffer } from "@/lib/ai/classify";
 import { syntheticInvoiceResult } from "@/lib/ai/vision-prep";
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
-import { uploadBufferToDrive, ensureDriveFolder } from "@/lib/drive/server";
-import { makeScanFileName } from "@/lib/drive/filename";
+import {
+  uploadBufferToDrive,
+  ensureDriveFolder,
+  moveAndRenameDriveFile,
+  trashDriveFile,
+} from "@/lib/drive/server";
+import { makeScanFileName, sanitizeFileBase } from "@/lib/drive/filename";
 import { resolveGoogleBearerToken } from "@/lib/google/token";
+import {
+  findPendingDuplicate,
+  insertPendingFiling,
+  type PendingFiling,
+} from "@/lib/gmail/pending";
+
+export const PENDING_REVIEW_FOLDER_HE = "ממתין לאישור";
 
 const GMAIL_QUERY =
   'is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR חשבון) has:attachment';
@@ -21,6 +33,8 @@ type ProcessedAttachment = {
   vendor: string;
   doc_type: string;
   autonomous: boolean;
+  pending?: boolean;
+  pendingId?: string;
   folder?: string;
   billAlert?: boolean;
   demo?: boolean;
@@ -115,51 +129,73 @@ async function markMessageRead(token: string, messageId: string) {
   });
 }
 
+function extFromMime(mimeType: string, fileName: string): "pdf" | "png" | "jpg" {
+  if (mimeType.includes("pdf") || /\.pdf$/i.test(fileName)) return "pdf";
+  if (mimeType.includes("png") || /\.png$/i.test(fileName)) return "png";
+  return "jpg";
+}
+
+function suggestedFolderFor(result: ClassificationResult): string {
+  if (result.is_personal_doc) return PERSONAL_VAULT_FOLDER_HE;
+  if (result.is_unpaid_bill) return PENDING_BILLS_FOLDER_HE;
+  return result.suggested_folder_name || "מסמכים";
+}
+
 export type IngestResult = {
   processed: ProcessedAttachment[];
   notifications: string[];
   demo: boolean;
   scanned: number;
+  pendingCount: number;
 };
 
-/** Demo ingest when Gmail token is not configured — never call Gemini with fake bytes */
+/** Demo ingest — queue a pending item (no fake Vision call, no auto-file) */
 async function demoIngest(): Promise<IngestResult> {
   const result = syntheticInvoiceResult();
-
-  const pendingFolder = await ensureDriveFolder(PENDING_BILLS_FOLDER_HE);
+  const smartName = makeScanFileName(result, "pdf");
+  const holding = await ensureDriveFolder(PENDING_REVIEW_FOLDER_HE);
   const uploaded = await uploadBufferToDrive({
     buffer: Buffer.from(
       "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
     ),
-    fileName: `gmail-demo-${Date.now()}.pdf`,
+    fileName: `pending-${smartName}`,
     mimeType: "application/pdf",
-    folderId: pendingFolder.id,
+    folderId: holding.id,
   });
 
-  let billAlert = false;
-  if (result.is_unpaid_bill) {
-    const created = await maybeCreateBillAlert(result, uploaded);
-    billAlert = !!created;
-  }
+  const pending = await insertPendingFiling({
+    source: "gmail-demo",
+    gmail_message_id: `demo-${Date.now()}`,
+    original_file_name: "demo-invoice.pdf",
+    mime_type: "application/pdf",
+    drive_file_id: uploaded.id,
+    drive_file_url: uploaded.webViewLink ?? null,
+    classification: result,
+    suggested_file_name: smartName,
+    suggested_folder_name: suggestedFolderFor(result),
+    vendor_key: result.vendor,
+    confirmation_count: 0,
+  });
 
-  const typeLabel = docTypeHe(result.doc_type);
   return {
     demo: true,
     scanned: 1,
+    pendingCount: 1,
     processed: [
       {
         messageId: "demo-msg",
-        fileName: "demo-invoice.pdf",
+        fileName: smartName,
         vendor: result.vendor,
-        doc_type: typeLabel,
+        doc_type: docTypeHe(result.doc_type),
         autonomous: false,
-        folder: pendingFolder.name,
-        billAlert,
+        pending: true,
+        pendingId: pending.id,
+        folder: PENDING_REVIEW_FOLDER_HE,
         demo: true,
       },
     ],
     notifications: [
-      `מצב דמו: אין חיבור Gmail — נוצרה דוגמת ${typeLabel} מ-${result.vendor} (בלי קריאה ל-AI)`,
+      `מצב דמו: נוסף מסמך לאישור (1/3) — אשרו שם תיקייה ושם קובץ לפני תיוק אוטומטי`,
     ],
   };
 }
@@ -178,6 +214,7 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
   const messages = list.messages ?? [];
   const processed: ProcessedAttachment[] = [];
   const notifications: string[] = [];
+  let pendingCount = 0;
 
   for (const msgRef of messages) {
     const full = await gmailFetch(token, `/messages/${msgRef.id}?format=full`);
@@ -185,6 +222,25 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
     let messageHandled = false;
 
     for (const att of attachments) {
+      const originalName = att.filename || `gmail-${Date.now()}`;
+
+      const dup = await findPendingDuplicate(msgRef.id, originalName);
+      if (dup) {
+        processed.push({
+          messageId: msgRef.id,
+          fileName: dup.suggested_file_name,
+          vendor: dup.vendor_key,
+          doc_type: docTypeHe(dup.classification.doc_type),
+          autonomous: false,
+          pending: true,
+          pendingId: dup.id,
+          folder: PENDING_REVIEW_FOLDER_HE,
+        });
+        pendingCount++;
+        messageHandled = true;
+        continue;
+      }
+
       let buffer: Buffer;
       if (att.data) {
         buffer = decodeBase64Url(att.data);
@@ -199,66 +255,83 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
       }
 
       const { result } = await classifyBuffer(buffer, att.mimeType, {
-        fileName: att.filename,
+        fileName: originalName,
       });
       const rule = await lookupRule(result.vendor);
+      const ext = extFromMime(att.mimeType, originalName);
+      const smartName = makeScanFileName(result, ext);
+      const typeLabel = docTypeHe(result.doc_type);
 
-      let folderId: string | undefined;
-      let folderName: string;
-      let autonomous = false;
-
+      // Only auto-file after 3 user approvals (is_autonomous)
       if (rule?.is_autonomous) {
-        folderId = rule.target_folder_id;
-        folderName = rule.target_folder_name;
-        autonomous = true;
-      } else if (result.is_personal_doc) {
-        const vault = await ensureDriveFolder(PERSONAL_VAULT_FOLDER_HE);
-        folderId = vault.id;
-        folderName = vault.name;
-      } else if (result.is_unpaid_bill) {
-        const pending = await ensureDriveFolder(PENDING_BILLS_FOLDER_HE);
-        folderId = pending.id;
-        folderName = pending.name;
-      } else {
-        const folder = await ensureDriveFolder(result.suggested_folder_name);
-        folderId = folder.id;
-        folderName = folder.name;
+        const uploaded = await uploadBufferToDrive({
+          buffer,
+          fileName: smartName,
+          mimeType: att.mimeType,
+          folderId: rule.target_folder_id,
+        });
+
+        let billAlert = false;
+        if (result.is_unpaid_bill) {
+          billAlert = !!(await maybeCreateBillAlert(result, uploaded));
+        }
+        if (result.is_personal_doc) {
+          await maybeCreatePersonalDocument(result, uploaded);
+        }
+
+        processed.push({
+          messageId: msgRef.id,
+          fileName: smartName,
+          vendor: result.vendor,
+          doc_type: typeLabel,
+          autonomous: true,
+          folder: rule.target_folder_name,
+          billAlert,
+        });
+        notifications.push(
+          `🤖 מייל מ-${result.vendor} עם ${typeLabel} תויק אוטומטית לדרייב (${rule.target_folder_name})`
+        );
+        messageHandled = true;
+        continue;
       }
 
-      const uploaded = await uploadBufferToDrive({
+      // Queue for user confirmation (name + folder) — 3-strike learning
+      const holding = await ensureDriveFolder(PENDING_REVIEW_FOLDER_HE);
+      const holdingUpload = await uploadBufferToDrive({
         buffer,
-        fileName: att.filename || `gmail-${Date.now()}`,
+        fileName: `ממתין-${smartName}`,
         mimeType: att.mimeType,
-        folderId,
+        folderId: holding.id,
       });
 
-      let billAlert = false;
-      if (result.is_unpaid_bill) {
-        const created = await maybeCreateBillAlert(result, uploaded);
-        billAlert = !!created;
-      }
+      const pending = await insertPendingFiling({
+        source: "gmail",
+        gmail_message_id: msgRef.id,
+        original_file_name: originalName,
+        mime_type: att.mimeType,
+        drive_file_id: holdingUpload.id,
+        drive_file_url: holdingUpload.webViewLink ?? null,
+        classification: result,
+        suggested_file_name: smartName,
+        suggested_folder_name: suggestedFolderFor(result),
+        vendor_key: result.vendor,
+        confirmation_count: rule?.confirmation_count ?? 0,
+      });
 
-      if (result.is_personal_doc) {
-        await maybeCreatePersonalDocument(result, uploaded);
-      }
-
-      const typeLabel = docTypeHe(result.doc_type);
       processed.push({
         messageId: msgRef.id,
-        fileName: att.filename,
+        fileName: smartName,
         vendor: result.vendor,
         doc_type: typeLabel,
-        autonomous,
-        folder: folderName,
-        billAlert,
+        autonomous: false,
+        pending: true,
+        pendingId: pending.id,
+        folder: PENDING_REVIEW_FOLDER_HE,
       });
-
-      if (autonomous) {
-        notifications.push(
-          `🤖 מייל מ-${result.vendor} עם ${typeLabel} תויק אוטומטית לדרייב`
-        );
-      }
-
+      pendingCount++;
+      notifications.push(
+        `ממתין לאישור: ${typeLabel} מ-${result.vendor} (אישור ${(rule?.confirmation_count ?? 0) + 1}/3) — בדקו שם קובץ ותיקייה`
+      );
       messageHandled = true;
     }
 
@@ -272,50 +345,109 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
     notifications,
     demo: false,
     scanned: messages.length,
+    pendingCount,
   };
 }
 
-export async function classifyAndProcessAttachment(
-  buffer: Buffer,
-  mimeType: string,
-  fileName: string
-): Promise<{
-  classification: ClassificationResult;
-  driveFile: { id: string; webViewLink?: string };
-  billAlert: Awaited<ReturnType<typeof maybeCreateBillAlert>>;
-  vaultDoc: Awaited<ReturnType<typeof maybeCreatePersonalDocument>>;
+export async function confirmPendingFiling(opts: {
+  pendingId: string;
+  fileName: string;
+  folderId: string;
+  folderName: string;
+  classification?: ClassificationResult;
+}): Promise<{
+  filing: PendingFiling;
+  driveFile: { id: string; webViewLink?: string; name: string };
+  learned: boolean;
+  confirmation_count: number;
 }> {
-  const { result } = await classifyBuffer(buffer, mimeType, { fileName });
-
-  let folderId: string | undefined;
-  if (result.is_personal_doc) {
-    const vault = await ensureDriveFolder(PERSONAL_VAULT_FOLDER_HE);
-    folderId = vault.id;
-  } else if (result.is_unpaid_bill) {
-    const pending = await ensureDriveFolder(PENDING_BILLS_FOLDER_HE);
-    folderId = pending.id;
-  } else {
-    const folder = await ensureDriveFolder(result.suggested_folder_name);
-    folderId = folder.id;
+  const { getPendingFiling, markPendingFiling } = await import(
+    "@/lib/gmail/pending"
+  );
+  const pending = await getPendingFiling(opts.pendingId);
+  if (!pending || pending.status !== "pending") {
+    throw new Error("הפריט לאישור לא נמצא או כבר טופל");
+  }
+  if (!pending.drive_file_id) {
+    throw new Error("חסר קובץ Drive לפריט הממתין");
   }
 
-  const ext =
-    mimeType.includes("pdf") || /\.pdf$/i.test(fileName)
-      ? "pdf"
-      : mimeType.includes("png")
-        ? "png"
-        : "jpg";
-  const smartName = makeScanFileName(result, ext);
+  const classification = opts.classification ?? pending.classification;
+  const safeName = sanitizeFileBase(
+    opts.fileName.replace(/\.(pdf|png|jpe?g)$/i, "")
+  );
+  const ext = extFromMime(pending.mime_type, pending.original_file_name);
+  const finalName = `${safeName}.${ext}`;
 
-  const uploaded = await uploadBufferToDrive({
-    buffer,
-    fileName: smartName,
-    mimeType,
-    folderId,
+  const moved = await moveAndRenameDriveFile({
+    fileId: pending.drive_file_id,
+    newName: finalName,
+    newParentId: opts.folderId,
   });
 
-  const billAlert = await maybeCreateBillAlert(result, uploaded);
-  const vaultDoc = await maybeCreatePersonalDocument(result, uploaded);
+  // Teach routing rule (3-strike)
+  const supabase = getSupabase();
+  const now = new Date().toISOString();
+  const vendor = classification.vendor;
+  const { data: existing } = await supabase
+    .from("routing_rules")
+    .select("*")
+    .eq("vendor_or_doc_type", vendor)
+    .maybeSingle();
 
-  return { classification: result, driveFile: uploaded, billAlert, vaultDoc };
+  let confirmation_count = 1;
+  let learned = false;
+  if (!existing) {
+    await supabase.from("routing_rules").insert({
+      vendor_or_doc_type: vendor,
+      target_folder_id: opts.folderId,
+      target_folder_name: opts.folderName,
+      confirmation_count: 1,
+      is_autonomous: false,
+      last_triggered_at: now,
+    });
+  } else {
+    confirmation_count = (existing.confirmation_count ?? 1) + 1;
+    const is_autonomous =
+      confirmation_count >= 3 || Boolean(existing.is_autonomous);
+    learned = confirmation_count >= 3 && !existing.is_autonomous;
+    await supabase
+      .from("routing_rules")
+      .update({
+        target_folder_id: opts.folderId,
+        target_folder_name: opts.folderName,
+        confirmation_count,
+        is_autonomous,
+        last_triggered_at: now,
+      })
+      .eq("id", existing.id);
+  }
+
+  if (classification.is_unpaid_bill) {
+    await maybeCreateBillAlert(classification, moved);
+  }
+  if (classification.is_personal_doc) {
+    await maybeCreatePersonalDocument(classification, moved);
+  }
+
+  await markPendingFiling(opts.pendingId, "filed");
+
+  return {
+    filing: pending,
+    driveFile: moved,
+    learned,
+    confirmation_count,
+  };
+}
+
+export async function dismissPendingFiling(pendingId: string): Promise<void> {
+  const { getPendingFiling, markPendingFiling } = await import(
+    "@/lib/gmail/pending"
+  );
+  const pending = await getPendingFiling(pendingId);
+  if (!pending || pending.status !== "pending") return;
+  if (pending.drive_file_id) {
+    await trashDriveFile(pending.drive_file_id);
+  }
+  await markPendingFiling(pendingId, "dismissed");
 }

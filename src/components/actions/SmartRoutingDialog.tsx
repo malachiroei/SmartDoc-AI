@@ -12,6 +12,7 @@ import type { ClassificationResult, DocType, RoutingRule } from "@/lib/types";
 import { Modal } from "@/components/ui/Modal";
 import { cn } from "@/lib/utils";
 import { docTypeHe, he } from "@/lib/i18n/he";
+import { makeScanFileBase } from "@/lib/drive/filename";
 import { ClassificationBadge } from "./ClassificationBadge";
 
 const DOC_TYPE_OPTIONS: DocType[] = [
@@ -33,11 +34,10 @@ type Props = {
   classification: ClassificationResult;
   rule: RoutingRule | null;
   busy?: boolean;
-  onFileExisting: (corrected: ClassificationResult) => void;
-  onCreateNew: (corrected: ClassificationResult) => void;
-  onManual: (corrected: ClassificationResult) => void;
-  /** Skip Drive — go straight to email composer */
-  onEmailOnly?: (corrected: ClassificationResult) => void;
+  onFileExisting: (corrected: ClassificationResult, fileBase: string) => void;
+  onCreateNew: (corrected: ClassificationResult, fileBase: string) => void;
+  onManual: (corrected: ClassificationResult, fileBase: string) => void;
+  onEmailOnly?: (corrected: ClassificationResult, fileBase: string) => void;
   onClose: () => void;
 };
 
@@ -54,6 +54,7 @@ export function SmartRoutingDialog({
 }: Props) {
   const [docType, setDocType] = useState<DocType>(classification.doc_type);
   const [vendor, setVendor] = useState(classification.vendor);
+  const [fileBase, setFileBase] = useState(makeScanFileBase(classification));
 
   const showExisting =
     !!rule &&
@@ -86,6 +87,8 @@ export function SmartRoutingDialog({
   };
 
   const typeLabel = docTypeHe(docType);
+  const resolvedFileBase =
+    fileBase.trim() || makeScanFileBase(buildCorrected());
 
   return (
     <Modal
@@ -107,7 +110,6 @@ export function SmartRoutingDialog({
           }}
         />
 
-        {/* User correction controls — feed ai_feedback_ledger */}
         <div className="rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4 space-y-3">
           <p className="text-sm font-medium text-amber-100">
             {he.routing.correctTitle}
@@ -147,6 +149,19 @@ export function SmartRoutingDialog({
               />
             </label>
           </div>
+          <label className="block text-xs space-y-1.5">
+            <span className="text-[var(--fg-muted)]">{he.routing.fileName}</span>
+            <input
+              type="text"
+              value={fileBase}
+              disabled={busy}
+              onChange={(e) => setFileBase(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border)] bg-[var(--ink)]/70 px-3 py-2.5 text-sm text-[var(--fg)] outline-none focus:border-teal-400/50"
+            />
+            <span className="text-[10px] text-[var(--fg-muted)]">
+              {he.routing.fileNameHint}
+            </span>
+          </label>
         </div>
 
         {rule && !rule.is_autonomous && (
@@ -160,7 +175,7 @@ export function SmartRoutingDialog({
             <button
               type="button"
               disabled={busy}
-              onClick={() => onEmailOnly(buildCorrected())}
+              onClick={() => onEmailOnly(buildCorrected(), resolvedFileBase)}
               className={cn(
                 "w-full rounded-2xl border border-sky-400/40 bg-sky-400/10 p-4 text-start",
                 "hover:border-sky-400 transition-colors disabled:opacity-50"
@@ -183,7 +198,7 @@ export function SmartRoutingDialog({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onCreateNew(buildCorrected())}
+            onClick={() => onCreateNew(buildCorrected(), resolvedFileBase)}
             className={cn(
               "w-full rounded-2xl border border-teal-400/40 bg-teal-400/10 p-4 text-start",
               "hover:border-teal-400 transition-colors disabled:opacity-50"
@@ -203,7 +218,7 @@ export function SmartRoutingDialog({
             <button
               type="button"
               disabled={busy}
-              onClick={() => onFileExisting(buildCorrected())}
+              onClick={() => onFileExisting(buildCorrected(), resolvedFileBase)}
               className={cn(
                 "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-start",
                 "hover:border-teal-400/60 transition-colors disabled:opacity-50"
@@ -221,7 +236,7 @@ export function SmartRoutingDialog({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onManual(buildCorrected())}
+            onClick={() => onManual(buildCorrected(), resolvedFileBase)}
             className={cn(
               "w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-start",
               "hover:border-teal-400/60 transition-colors disabled:opacity-50"
