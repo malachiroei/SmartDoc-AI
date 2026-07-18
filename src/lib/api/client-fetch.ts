@@ -36,6 +36,9 @@ export async function fetchJson<T = Record<string, unknown>>(
   try {
     data = (await response.json()) as T;
   } catch {
+    if (response.status === 504 || response.status === 408) {
+      throw new ApiRequestError(he.errors.timeout, response.status);
+    }
     throw new Error(
       response.ok
         ? he.errors.badResponse
@@ -66,6 +69,14 @@ export async function fetchJsonOk<T = Record<string, unknown>>(
   const record = data as Record<string, unknown>;
 
   if (!response.ok) {
+    if (response.status === 504 || response.status === 408) {
+      throw new ApiRequestError(
+        typeof record.error === "string"
+          ? record.error
+          : he.errors.timeout,
+        response.status
+      );
+    }
     const apiError =
       typeof record.error === "string"
         ? record.error
