@@ -22,12 +22,18 @@ import {
 
 export const PENDING_REVIEW_FOLDER_HE = "ממתין לאישור";
 
-/** Keep query focused — bare "חשבון" matches too many bank emails and causes timeouts */
-const GMAIL_QUERY =
-  "is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR \"חשבון לתשלום\" OR unpaid) has:attachment";
+/**
+ * Search ALL mail (inbox + labels/folders), not only inbox.
+ * 1) Fresh unread invoices/receipts
+ * 2) Utility / Mei Avivim water bills across folders (including older mail)
+ */
+const GMAIL_QUERIES = [
+  'is:unread (invoice OR bill OR receipt OR חשבונית OR קבלה OR "חשבון לתשלום" OR unpaid) has:attachment',
+  '("מי אביבים" OR "מי-אביבים" OR meiaavivim OR "mei avivim" OR חשבון מים OR (אישור תשלום מים)) has:attachment newer_than:3y',
+] as const;
 
 /** Stay under Vercel/proxy ~60s limits (Hobby often 504 earlier) */
-const MAX_MESSAGES = 3;
+const MAX_MESSAGES = 4;
 const MAX_NEW_CLASSIFICATIONS = 2;
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const TIME_BUDGET_MS = 48_000;
@@ -68,6 +74,37 @@ async function gmailFetch(token: string, path: string, init?: RequestInit) {
 function decodeBase64Url(data: string): Buffer {
   const padded = data.replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(padded, "base64");
+}
+
+function headerValue(
+  headers: Array<{ name?: string; value?: string }> | undefined,
+  name: string
+): string {
+  const hit = headers?.find(
+    (h) => (h.name || "").toLowerCase() === name.toLowerCase()
+  );
+  return (hit?.value || "").trim();
+}
+
+async function listGmailMessageIds(token: string): Promise<GmailMessageRef[]> {
+  const seen = new Set<string>();
+  const out: GmailMessageRef[] = [];
+
+  for (const q of GMAIL_QUERIES) {
+    const list = (await gmailFetch(
+      token,
+      `/messages?q=${encodeURIComponent(q)}&maxResults=${MAX_MESSAGES}`
+    )) as { messages?: GmailMessageRef[] };
+
+    for (const m of list.messages ?? []) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      out.push(m);
+      if (out.length >= MAX_MESSAGES) return out;
+    }
+  }
+
+  return out;
 }
 
 function extractAttachments(payload: {
@@ -144,8 +181,65 @@ function extFromMime(mimeType: string, fileName: string): "pdf" | "png" | "jpg" 
 
 function suggestedFolderFor(result: ClassificationResult): string {
   if (result.is_personal_doc) return PERSONAL_VAULT_FOLDER_HE;
+  // Prefer AI / enriched folder (e.g. חשבונות מים) so 3-strike learns that path
+  if (result.suggested_folder_name?.trim()) {
+    return result.suggested_folder_name.trim();
+  }
   if (result.is_unpaid_bill) return PENDING_BILLS_FOLDER_HE;
-  return result.suggested_folder_name || "מסמכים";
+  return "מסמכים";
+}
+
+/** Reinforce Mei Avivim / water-bill routing from email Subject/From + AI result */
+function enrichUtilityBillClassification(
+  result: ClassificationResult,
+  hint: string
+): ClassificationResult {
+  const blob = [
+    hint,
+    result.vendor,
+    result.summary,
+    result.suggested_folder_name,
+    result.doc_type,
+  ].join(" ");
+
+  const isMeiAvivim = /אביבים|mei[_\s-]?avivim|meiaavivim/i.test(blob);
+  const isWater = isMeiAvivim || /חשבון מים|מים/.test(blob);
+  if (!isWater) return result;
+
+  const paidHint =
+    /אישור תשלום|שולם(?:\s|$)|paid|payment confirmation|קבלה על תשלום/i.test(
+      blob
+    );
+  const looksLikeBill =
+    /לתשלום|יתרה|due|unpaid|חשבון מים|bill/i.test(blob) ||
+    result.doc_type === "Bill" ||
+    Boolean(result.is_unpaid_bill);
+
+  const out: ClassificationResult = { ...result };
+  if (isMeiAvivim) out.vendor = "Mei_Avivim";
+  out.suggested_folder_name =
+    out.suggested_folder_name?.includes("מים") ||
+    out.suggested_folder_name?.includes("אביבים")
+      ? out.suggested_folder_name
+      : "חשבונות מים";
+
+  if (paidHint || out.doc_type === "Receipt") {
+    out.doc_type = "Receipt";
+    out.is_unpaid_bill = false;
+    if (!/מים|תשלום/.test(out.summary || "")) {
+      out.summary = "אישור תשלום מים";
+    }
+  } else if (looksLikeBill) {
+    out.doc_type = "Bill";
+    out.is_unpaid_bill = true;
+    if (!/חשבון מים/.test(out.summary || "")) {
+      out.summary = out.summary?.trim()
+        ? out.summary
+        : "חשבון מים";
+    }
+  }
+
+  return out;
 }
 
 export type IngestResult = {
@@ -219,12 +313,8 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
   const started = Date.now();
   const timeLeft = () => TIME_BUDGET_MS - (Date.now() - started);
 
-  const list = (await gmailFetch(
-    token,
-    `/messages?q=${encodeURIComponent(GMAIL_QUERY)}&maxResults=${MAX_MESSAGES}`
-  )) as { messages?: GmailMessageRef[] };
-
-  const messages = list.messages ?? [];
+  const list = await listGmailMessageIds(token);
+  const messages = list;
   const processed: ProcessedAttachment[] = [];
   const notifications: string[] = [];
   let pendingCount = 0;
@@ -241,6 +331,11 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
 
     const full = await gmailFetch(token, `/messages/${msgRef.id}?format=full`);
     const attachments = extractAttachments(full.payload ?? {});
+    const labelIds: string[] = Array.isArray(full.labelIds) ? full.labelIds : [];
+    const wasUnread = labelIds.includes("UNREAD");
+    const subject = headerValue(full.payload?.headers, "Subject");
+    const from = headerValue(full.payload?.headers, "From");
+    const classifyHint = [subject, from].filter(Boolean).join(" | ");
     let messageHandled = false;
 
     for (const att of attachments) {
@@ -253,6 +348,11 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
 
       const dup = await findPendingDuplicate(msgRef.id, originalName);
       if (dup) {
+        // Already filed — skip silently; still pending — show again
+        if (dup.status === "filed") {
+          messageHandled = true;
+          continue;
+        }
         processed.push({
           messageId: msgRef.id,
           fileName: dup.suggested_file_name,
@@ -300,8 +400,10 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
       try {
         const classified = await classifyBuffer(buffer, att.mimeType, {
           fileName: originalName,
+          hint: classifyHint,
         });
         result = classified.result;
+        result = enrichUtilityBillClassification(result, classifyHint);
       } catch (classifyErr) {
         console.warn("[gmail/ingest] classify failed:", classifyErr);
         notifications.push(
@@ -390,7 +492,7 @@ export async function ingestGmailInbox(): Promise<IngestResult> {
       messageHandled = true;
     }
 
-    if (messageHandled) {
+    if (messageHandled && wasUnread) {
       try {
         await markMessageRead(token, msgRef.id);
       } catch (markErr) {

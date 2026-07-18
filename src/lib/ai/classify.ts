@@ -62,6 +62,16 @@ CRITICAL DOMAIN RULES:
 - vendor: PascalCase or Underscore_Case Latin letters, no spaces (personal docs → State_of_Israel).
 - summary: MUST be in Hebrew; for personal docs include the person's name when readable.
 - Prefer specific personal types (Passport, Driver_License, ID_Card) over generic "ID".
+
+UTILITY / WATER / MUNICIPAL BILLS (חשבונות מים / ארנונה / חשמל):
+- Israeli water company "מי אביבים" / Mei Avivim → vendor exactly "Mei_Avivim", suggested_folder_name "חשבונות מים".
+- If the document is a bill to pay (חשבון לתשלום, יתרה לתשלום, due date, no payment confirmation):
+  * doc_type: "Bill", is_unpaid_bill: true
+  * summary Hebrew like: "חשבון מים - מרץ 2026" (use the billing month/period from the document)
+- If the document is a payment confirmation / paid receipt (אישור תשלום, שולם, קבלה על תשלום, paid):
+  * doc_type: "Receipt", is_unpaid_bill: false
+  * summary Hebrew like: "אישור תשלום מים - מרץ 2026"
+- Always put the month/period in summary when visible (חודש עברי or MM/YYYY).
 `;
 
 const USER_VISION_INSTRUCTION = `Look at this image carefully. Classify the document and return STRICT JSON only.
@@ -71,6 +81,11 @@ If this is an Israeli Driver's License (רישיון נהיגה), Israeli ID (ת
 - Set is_personal_doc: true, is_unpaid_bill: false.
 - Route to suggested_folder_name "מסמכים אישיים".
 - summary should be Hebrew and include the person's name when visible.
+
+If this is a water/utility bill (מי אביבים, חשבון מים, חשמל, ארנונה):
+- Distinguish UNPAID bill (is_unpaid_bill true, doc_type Bill) vs PAID receipt/confirmation (is_unpaid_bill false, doc_type Receipt).
+- summary MUST include Hebrew title with month, e.g. "חשבון מים - ינואר 2026".
+- vendor Mei_Avivim for מי אביבים; folder "חשבונות מים".
 
 Obey few-shot examples and user overrides from the system prompt.`;
 
@@ -198,7 +213,7 @@ export function parseClassificationJson(raw: string): ClassificationResult {
 export async function classifyBuffer(
   buffer: Buffer,
   mimeType: string,
-  opts?: { fileName?: string; forcePersonal?: boolean }
+  opts?: { fileName?: string; forcePersonal?: boolean; hint?: string }
 ): Promise<{
   result: ClassificationResult;
   provider: VisionProvider | "demo";
@@ -224,6 +239,7 @@ export async function classifyBuffer(
   return classifyDocument(dataUrl, {
     fileName: opts?.fileName,
     forcePersonal: opts?.forcePersonal,
+    hint: opts?.hint,
   });
 }
 

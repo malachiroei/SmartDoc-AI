@@ -14,7 +14,7 @@ export function sanitizeFileBase(name: string): string {
 
 /**
  * Build a meaningful Drive file base name from AI classification.
- * Example: "רישיון נהיגה - רועי מלאכי" (caller adds .pdf / .jpg)
+ * Example: "חשבון מים - מרץ 2026" or "רישיון נהיגה - רועי מלאכי"
  */
 export function makeScanFileBase(
   classification?: Partial<ClassificationResult> | null
@@ -29,8 +29,19 @@ export function makeScanFileBase(
       return sanitizeFileBase(summary);
     }
 
-    const typeLabel = docTypeHe(classification.doc_type || "Other");
     const vendorRaw = String(classification.vendor || "").trim();
+    const isWater =
+      /mei_?avivim|אביבים|מים/i.test(vendorRaw) ||
+      /מים|water/i.test(summary);
+
+    if (isWater) {
+      const paid = classification.doc_type === "Receipt" || !classification.is_unpaid_bill;
+      return sanitizeFileBase(
+        paid ? "אישור תשלום מים" : "חשבון מים"
+      );
+    }
+
+    const typeLabel = docTypeHe(classification.doc_type || "Other");
     const vendorOk =
       vendorRaw &&
       !/^(Unknown|State_of_Israel|Demo_)/i.test(vendorRaw) &&
