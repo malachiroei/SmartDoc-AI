@@ -4,6 +4,7 @@ import { maybeCreatePersonalDocument } from "@/lib/vault/documents";
 import { docTypeHe } from "@/lib/i18n/he";
 import type { ClassificationResult, RoutingRule } from "@/lib/types";
 import { classifyBuffer } from "@/lib/ai/classify";
+import { syntheticInvoiceResult } from "@/lib/ai/vision-prep";
 import { getSupabase, mapSupabaseError } from "@/lib/supabase/client";
 import { uploadBufferToDrive, ensureDriveFolder } from "@/lib/drive/server";
 import { makeScanFileName } from "@/lib/drive/filename";
@@ -121,16 +122,15 @@ export type IngestResult = {
   scanned: number;
 };
 
-/** Demo ingest when Gmail token is not configured */
+/** Demo ingest when Gmail token is not configured — never call Gemini with fake bytes */
 async function demoIngest(): Promise<IngestResult> {
-  const { result } = await classifyBuffer(
-    Buffer.from("demo"),
-    "image/jpeg"
-  );
+  const result = syntheticInvoiceResult();
 
   const pendingFolder = await ensureDriveFolder(PENDING_BILLS_FOLDER_HE);
   const uploaded = await uploadBufferToDrive({
-    buffer: Buffer.from("demo-invoice"),
+    buffer: Buffer.from(
+      "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+    ),
     fileName: `gmail-demo-${Date.now()}.pdf`,
     mimeType: "application/pdf",
     folderId: pendingFolder.id,
@@ -159,7 +159,7 @@ async function demoIngest(): Promise<IngestResult> {
       },
     ],
     notifications: [
-      `🤖 מייל מ-${result.vendor} עם ${typeLabel} תויק אוטומטית לדרייב (מצב דמו)`,
+      `מצב דמו: אין חיבור Gmail — נוצרה דוגמת ${typeLabel} מ-${result.vendor} (בלי קריאה ל-AI)`,
     ],
   };
 }

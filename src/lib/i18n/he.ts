@@ -119,7 +119,7 @@ export const he = {
     removeEmail: "הסרה",
     noSavedEmails: "אין נמענים שמורים עדיין",
     emailNotConfigured:
-      "שליחת מייל לא מוגדרת בשרת — הוסיפו SMTP_* ב-Vercel",
+      "שליחת מייל דורשת חיבור Google מחדש (הרשאת שליחה) או SMTP ב-Vercel",
     downloadLocal: "הורדה למחשב",
     anotherAction: "פעולה נוספת",
     done: "סיום",
