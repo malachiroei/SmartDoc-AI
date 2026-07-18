@@ -9,12 +9,16 @@ import {
   sanitizePersonalClassification,
 } from "@/lib/ai/personal";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 import type { ClassificationResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 /** GET /api/vault — list personal vault documents */
 export async function GET() {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const documents = await listPersonalDocuments();
     return NextResponse.json({ documents });
@@ -29,6 +33,9 @@ export async function GET() {
 
 /** POST /api/vault — create personal document after scan/upload */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const body = await request.json();
     const raw = body.classification as ClassificationResult;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { retrieveFromVault } from "@/lib/vault/retrieve";
 import { mapSupabaseError } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,9 @@ export const runtime = "nodejs";
  * Natural-language Hebrew vault retrieval agent.
  */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const body = await request.json().catch(() => ({}));
     const query = String(body.query ?? body.q ?? "").trim();

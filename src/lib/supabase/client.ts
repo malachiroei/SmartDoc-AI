@@ -12,12 +12,16 @@ if (typeof window === "undefined") {
 }
 
 let client: SupabaseClient | null = null;
+let adminClient: SupabaseClient | null = null;
 let envWarningLogged = false;
+let serviceRoleWarningLogged = false;
 
 export type SupabaseEnvStatus = {
   ok: boolean;
   url?: string;
   missing: string[];
+  /** True when server can bypass RLS via service role */
+  hasServiceRole?: boolean;
 };
 
 function logMissingEnvOnce(missing: string[]) {
@@ -34,6 +38,7 @@ function logMissingEnvOnce(missing: string[]) {
 export function checkSupabaseEnv(): SupabaseEnvStatus {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   const missing: string[] = [];
 
   if (!url) missing.push("NEXT_PUBLIC_SUPABASE_URL");
@@ -43,7 +48,12 @@ export function checkSupabaseEnv(): SupabaseEnvStatus {
     logMissingEnvOnce(missing);
   }
 
-  return { ok: missing.length === 0, url, missing };
+  return {
+    ok: missing.length === 0,
+    url,
+    missing,
+    hasServiceRole: Boolean(serviceRole),
+  };
 }
 
 // Eager server-side validation on module load (API routes / server)
@@ -102,26 +112,45 @@ function buildClient(url: string, key: string): SupabaseClient {
 }
 
 /**
- * Returns a Supabase client or throws with a clear message.
- * Logs helpful diagnostics to the server console when misconfigured.
+ * Server Supabase client for API routes / server libs.
+ * Prefers SUPABASE_SERVICE_ROLE_KEY so RLS does not block trusted server writes
+ * after requireGoogleAuth(). Never expose the service role to the browser.
  */
 export function getSupabase(): SupabaseClient {
-  const status = checkSupabaseEnv();
-
-  if (!status.ok) {
-    logMissingEnvOnce(status.missing);
+  if (typeof window !== "undefined") {
     throw new Error(
-      `Supabase לא מוגדר: חסרים ${status.missing.join(", ")}`
+      "getSupabase() is server-only. Call SmartDoc APIs instead of querying Supabase from the browser."
     );
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim();
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!.trim();
-
-  if (!client) {
-    client = buildClient(url, key);
+  const status = checkSupabaseEnv();
+  if (!status.ok) {
+    logMissingEnvOnce(status.missing);
+    throw new Error(`Supabase לא מוגדר: חסרים ${status.missing.join(", ")}`);
   }
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim();
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (serviceRole) {
+    if (!adminClient) {
+      adminClient = buildClient(url, serviceRole);
+    }
+    return adminClient;
+  }
+
+  if (!serviceRoleWarningLogged) {
+    serviceRoleWarningLogged = true;
+    console.warn(
+      "[supabase] SUPABASE_SERVICE_ROLE_KEY missing — using anon key. " +
+        "After enabling RLS, API routes will fail until the service role key is set in .env.local / Vercel."
+    );
+  }
+
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!.trim();
+  if (!client) {
+    client = buildClient(url, anon);
+  }
   return client;
 }
 
@@ -171,10 +200,10 @@ export function mapSupabaseError(error: unknown): string {
     lower.includes("rls") ||
     lower.includes("policy")
   ) {
-    return "אין הרשאת כתיבה לטבלת routing_rules. יש להגדיר מדיניות RLS ב-Supabase.";
+    return "אין הרשאה לטבלה (RLS). ודאו ש-SUPABASE_SERVICE_ROLE_KEY מוגדר בשרת ושמשתמש Google מחובר.";
   }
   if (lower.includes("jwt") || lower.includes("invalid api key")) {
-    return "מפתח Supabase לא תקין. בדקו את NEXT_PUBLIC_SUPABASE_ANON_KEY.";
+    return "מפתח Supabase לא תקין. בדקו NEXT_PUBLIC_SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY.";
   }
   if (lower.includes("duplicate") || lower.includes("unique")) {
     return "כלל תיוק זה כבר קיים עבור הספק.";

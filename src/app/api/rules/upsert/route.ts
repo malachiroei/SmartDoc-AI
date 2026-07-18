@@ -4,12 +4,16 @@ import {
   getSupabase,
   mapSupabaseError,
 } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 /**
  * POST /api/rules/upsert
  * 3-Strike learning: increment confirmation_count; at 3 → is_autonomous = true.
  */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const env = checkSupabaseEnv();
     if (!env.ok) {

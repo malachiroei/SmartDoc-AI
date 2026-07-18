@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthUrl, getOAuthRedirectUri } from "@/lib/google/oauth";
+import { safeReturnPath } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const redirectUri = getOAuthRedirectUri(request.url);
-    const returnTo = url.searchParams.get("returnTo") || "/";
+    const returnTo = safeReturnPath(url.searchParams.get("returnTo"), "/");
     const state = Buffer.from(JSON.stringify({ returnTo }), "utf8").toString(
       "base64url"
     );

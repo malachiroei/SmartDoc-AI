@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { classifyDocument } from "@/lib/ai/classify";
 import { checkSupabaseEnv } from "@/lib/supabase/client";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -11,6 +12,9 @@ export const maxDuration = 60;
  * Adaptive few-shot classification using Supabase memory.
  */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const env = checkSupabaseEnv();
     if (!env.ok) {
@@ -49,7 +53,7 @@ export async function POST(request: Request) {
       ? imageBase64
       : `data:image/jpeg;base64,${imageBase64}`;
 
-    const { result, provider, memoryUsed, adaptivePromptPreview } =
+    const { result, provider, memoryUsed } =
       await classifyDocument(payload, { fileName, hint, forcePersonal });
 
     return NextResponse.json({
@@ -58,7 +62,7 @@ export async function POST(request: Request) {
       demo: provider === "demo",
       memoryUsed,
       adaptive: memoryUsed > 0,
-      promptPreview: adaptivePromptPreview,
+      // Do not expose system prompt to the client
     });
   } catch (e) {
     console.error("[ai/classify]", e);

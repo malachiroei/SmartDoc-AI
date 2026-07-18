@@ -3,6 +3,7 @@ import { uploadBufferToDrive } from "@/lib/drive/server";
 import { getAuthenticatedDrive } from "@/lib/google/drive-client";
 import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
 import { SMARTDOC_ARCHIVE_FOLDER } from "@/lib/google/constants";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -13,6 +14,9 @@ export const maxDuration = 60;
  * Requires an authenticated Google session or env tokens.
  */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const form = await request.formData();
     const file = form.get("file");

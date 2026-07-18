@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ensureDriveFolder } from "@/lib/drive/server";
 import { getAuthenticatedDrive } from "@/lib/google/drive-client";
 import { isGoogleOAuthConfigured } from "@/lib/google/oauth";
+import { requireGoogleAuth } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,9 @@ export const runtime = "nodejs";
  * Find-or-create a Drive folder (under SmartDoc_Archive when parent is root).
  */
 export async function POST(request: Request) {
+  const gate = await requireGoogleAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const body = await request.json();
     const name = String(body.name ?? "").trim();

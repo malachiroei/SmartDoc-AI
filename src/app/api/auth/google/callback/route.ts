@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createOAuth2Client, getOAuthRedirectUri } from "@/lib/google/oauth";
 import { writeGoogleSession } from "@/lib/google/session";
+import { safeReturnPath } from "@/lib/auth/require-google";
 
 export const runtime = "nodejs";
 
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
         const state = JSON.parse(
           Buffer.from(stateRaw, "base64url").toString("utf8")
         ) as { returnTo?: string };
-        if (state.returnTo?.startsWith("/")) returnTo = state.returnTo;
+        returnTo = safeReturnPath(state.returnTo, "/");
       } catch {
         /* ignore bad state */
       }
