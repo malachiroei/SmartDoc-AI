@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Check,
+  ExternalLink,
+  Eye,
   FolderOpen,
   Loader2,
   Trash2,
@@ -20,6 +22,7 @@ type PendingItem = {
   id: string;
   original_file_name: string;
   mime_type: string;
+  drive_file_id: string | null;
   drive_file_url: string | null;
   classification: ClassificationResult;
   suggested_file_name: string;
@@ -33,6 +36,114 @@ type Props = {
   refreshKey?: number;
   onChanged?: () => void;
 };
+
+function paymentBadge(c: ClassificationResult): {
+  label: string;
+  className: string;
+} {
+  if (c.doc_type === "Receipt" || c.is_unpaid_bill === false) {
+    return {
+      label: he.gmail.paidBadge,
+      className:
+        "border-emerald-400/40 bg-emerald-400/15 text-emerald-100",
+    };
+  }
+  if (c.is_unpaid_bill || c.doc_type === "Bill") {
+    return {
+      label: he.gmail.unpaidBadge,
+      className: "border-amber-400/40 bg-amber-400/15 text-amber-100",
+    };
+  }
+  return {
+    label: he.gmail.unknownPayBadge,
+    className: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--fg-muted)]",
+  };
+}
+
+function DocumentPreview({ item }: { item: PendingItem }) {
+  const [open, setOpen] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const previewSrc = item.drive_file_id
+    ? `/api/drive/preview/${encodeURIComponent(item.drive_file_id)}`
+    : null;
+  const isPdf =
+    item.mime_type.includes("pdf") || /\.pdf$/i.test(item.original_file_name);
+  const isImage =
+    item.mime_type.startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif)$/i.test(item.original_file_name);
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--ink)]/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-xs text-[var(--fg-muted)] hover:bg-white/5"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Eye className="h-3.5 w-3.5" />
+          {open ? he.gmail.hidePreview : he.gmail.showPreview}
+        </span>
+        {item.drive_file_url && (
+          <a
+            href={item.drive_file_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-sky-300 hover:underline"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {he.gmail.openInDrive}
+          </a>
+        )}
+      </button>
+
+      {open && (
+        <div className="border-t border-[var(--border)] bg-black/30 min-h-[220px] max-h-[360px] flex items-center justify-center">
+          {!previewSrc || failed ? (
+            <p className="text-xs text-[var(--fg-muted)] px-4 py-8 text-center">
+              {he.gmail.previewUnavailable}
+              {item.drive_file_url && (
+                <>
+                  {" "}
+                  <a
+                    href={item.drive_file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-300 underline"
+                  >
+                    {he.gmail.openInDrive}
+                  </a>
+                </>
+              )}
+            </p>
+          ) : isPdf ? (
+            <iframe
+              title={item.suggested_file_name}
+              src={previewSrc}
+              className="h-[340px] w-full bg-white"
+              onError={() => setFailed(true)}
+            />
+          ) : isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewSrc}
+              alt={item.suggested_file_name}
+              className="max-h-[340px] w-full object-contain"
+              onError={() => setFailed(true)}
+            />
+          ) : (
+            <iframe
+              title={item.suggested_file_name}
+              src={previewSrc}
+              className="h-[340px] w-full"
+              onError={() => setFailed(true)}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function PendingFilingsPanel({ refreshKey = 0, onChanged }: Props) {
   const { toast } = useToast();
@@ -176,6 +287,7 @@ export function PendingFilingsPanel({ refreshKey = 0, onChanged }: Props) {
         };
         const busy = busyId === item.id;
         const count = item.confirmation_count;
+        const pay = paymentBadge(item.classification);
 
         return (
           <div
@@ -192,11 +304,28 @@ export function PendingFilingsPanel({ refreshKey = 0, onChanged }: Props) {
                 <p className="text-xs text-[var(--fg-muted)] mt-0.5">
                   {item.classification.summary}
                 </p>
-                <p className="text-[11px] text-amber-100/80 mt-1">
-                  {he.routing.memory(count)}
-                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex rounded-md border px-1.5 py-0.5 text-[10px]",
+                      pay.className
+                    )}
+                  >
+                    {pay.label}
+                  </span>
+                  {item.classification.amount != null && (
+                    <span className="text-[11px] text-[var(--fg-muted)]">
+                      ₪{item.classification.amount}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-amber-100/80">
+                    {he.routing.memory(count)}
+                  </span>
+                </div>
               </div>
             </div>
+
+            <DocumentPreview item={item} />
 
             <label className="block text-xs space-y-1">
               <span className="text-[var(--fg-muted)]">{he.gmail.pendingFileName}</span>

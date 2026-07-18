@@ -39,13 +39,24 @@ export async function findPendingDuplicate(
   const { data, error } = await supabase
     .from("pending_filings")
     .select("*")
-    .eq("status", "pending")
     .eq("gmail_message_id", gmailMessageId)
     .eq("original_file_name", originalFileName)
+    .in("status", ["pending", "filed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) throw new Error(mapSupabaseError(error));
   return (data as PendingFiling) ?? null;
+}
+
+/** True if this Gmail attachment was already queued or filed (any status except dismissed). */
+export async function wasGmailAttachmentSeen(
+  gmailMessageId: string,
+  originalFileName: string
+): Promise<boolean> {
+  const row = await findPendingDuplicate(gmailMessageId, originalFileName);
+  return Boolean(row);
 }
 
 export async function insertPendingFiling(row: {

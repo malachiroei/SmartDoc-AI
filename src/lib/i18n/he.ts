@@ -209,7 +209,7 @@ export const he = {
   gmail: {
     title: "סריקת Gmail",
     subtitle:
-      "מושך מיילים עם קבלות/חשבוניות. תיוק אוטומטי רק אחרי 3 אישורים שלכם — אחרת תאשרו שם קובץ ותיקייה.",
+      "סורק תיבת דואר ותיקיות (כולל חשבונות מים כמו מי אביבים). תיוק אוטומטי רק אחרי 3 אישורים — אחרת תאשרו שם קובץ ותיקייה עם תצוגה מקדימה.",
     ingest: "סריקת תיבת דואר נכנס",
     ingesting: "סורק מיילים…",
     ingestError: "סריקת Gmail נכשלה",
@@ -221,11 +221,12 @@ export const he = {
     demoNote: "חברו Google Drive (כולל Gmail) דרך הכפתור ב־navbar",
     unpaidBadge: "לא שולם",
     paidBadge: "שולם / קבלה",
+    unknownPayBadge: "סטטוס תשלום לא ברור",
     pendingBadge: "ממתין לאישור",
     autoBadge: "תויק אוטומטית",
     pendingTitle: "ממתינים לאישור (3 שלבים)",
     pendingSubtitle:
-      "לכל מסמך — אשרו שם קובץ ותיקייה. אחרי 3 אישורים לאותו ספק התיוק יהיה אוטומטי.",
+      "צפו במסמך, אשרו שם קובץ ותיקייה. אחרי 3 אישורים לאותו ספק (למשל מי אביבים) התיוק יהיה אוטומטי.",
     pendingEmpty: "אין מסמכים ממתינים לאישור כרגע",
     pendingLoading: "טוען ממתינים…",
     pendingFileName: "שם המסמך",
@@ -238,6 +239,10 @@ export const he = {
     pendingConfirmError: "אישור התיוק נכשל",
     pendingDismissError: "דחיית המסמך נכשלה",
     pendingNeedFields: "מלאו שם קובץ ותיקייה לפני האישור",
+    showPreview: "הצגת המסמך",
+    hidePreview: "הסתרת תצוגה",
+    openInDrive: "פתיחה ב-Drive",
+    previewUnavailable: "לא ניתן להציג כאן — פתחו ב-Drive:",
   },
   tabs: {
     home: "בית",
