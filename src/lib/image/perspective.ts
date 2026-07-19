@@ -30,10 +30,10 @@ export function fullFrameQuad(width: number, height: number): Quad {
 }
 
 /** Confidence at which UI shows a teal “locked” frame */
-export const LOCK_CONFIDENCE = 0.45;
+export const LOCK_CONFIDENCE = 0.55;
 
 /** Minimum confidence to treat corners as a real document (not just guidance) */
-export const DETECT_CONFIDENCE_MIN = 0.22;
+export const DETECT_CONFIDENCE_MIN = 0.28;
 
 export type EdgeDetectResult = {
   quad: Quad;
@@ -43,8 +43,7 @@ export type EdgeDetectResult = {
 
 /**
  * CamScanner-style document edge detection.
- * Combines luminance blob (screens/paper), edge-score rectangles (cards on desk),
- * and Sobel corner refinement — then snaps tightly to the strongest borders.
+ * Ranks bright paper, color cards, and edge rectangles — refuses desk-wide false locks.
  */
 export function detectDocumentEdges(
   imageData: ImageData,
@@ -61,76 +60,278 @@ export function detectDocumentEdges(
   }
   computeSobel(gray, sobel, width, height);
 
+  const candidates: EdgeDetectResult[] = [];
   const paper = detectPaperQuad(gray, width, height);
+  if (paper) candidates.push(paper);
+  const colorCard = detectColorCardBlob(data, gray, width, height);
+  if (colorCard) candidates.push(colorCard);
   const edgeRect = detectRectangleByEdgeScore(sobel, width, height);
-  const sobelResult = detectSobelCorners(
-    sobel,
-    width,
-    height,
-    paper?.quad ?? edgeRect?.quad ?? null
-  );
+  if (edgeRect) candidates.push(edgeRect);
 
-  const candidates = [paper, edgeRect, sobelResult].filter(
-    Boolean
-  ) as EdgeDetectResult[];
-  if (candidates.length === 0) return null;
-
-  let best = candidates[0];
-  for (let i = 1; i < candidates.length; i++) {
-    if (candidates[i].confidence > best.confidence) best = candidates[i];
+  let seed: Quad | null = null;
+  {
+    let bestSeed: EdgeDetectResult | null = null;
+    for (const c of candidates) {
+      if (quadCoverage(c.quad, width, height) > 0.5) continue;
+      if (!bestSeed || c.confidence > bestSeed.confidence) bestSeed = c;
+    }
+    seed = bestSeed?.quad ?? null;
   }
 
-  // Prefer fused result when paper + Sobel agree (stable screen / page lock)
-  if (paper && sobelResult) {
-    const agreement = cornerAgreement(paper.quad, sobelResult.quad, width, height);
-    if (agreement >= 0.45 && sobelResult.confidence >= 0.35) {
-      best = {
-        quad: snapQuadToEdges(
-          refinePaperWithSobel(paper.quad, sobelResult.quad, width, height),
-          sobel,
-          width,
-          height
-        ),
-        confidence: Math.min(
-          1,
-          sobelResult.confidence * 0.65 + paper.confidence * 0.2 + agreement * 0.3
-        ),
-      };
-    } else if (
-      paper.confidence >= sobelResult.confidence * 0.9 &&
-      paper.confidence >= (edgeRect?.confidence ?? 0)
-    ) {
-      best = {
-        quad: snapQuadToEdges(
-          refinePaperWithSobel(paper.quad, sobelResult.quad, width, height),
-          sobel,
-          width,
-          height
-        ),
-        confidence: Math.min(0.97, paper.confidence + agreement * 0.1),
-      };
+  const sobelResult = detectSobelCorners(sobel, width, height, seed);
+  if (sobelResult) candidates.push(sobelResult);
+  if (candidates.length === 0) return null;
+
+  let best: EdgeDetectResult | null = null;
+  for (const c of candidates) {
+    const ranked: EdgeDetectResult = {
+      quad: snapQuadToEdges(c.quad, sobel, width, height),
+      confidence: rankDetection(
+        c.quad,
+        sobel,
+        gray,
+        data,
+        width,
+        height,
+        c.confidence
+      ),
+    };
+    if (!best || ranked.confidence > best.confidence) best = ranked;
+  }
+
+  return best && best.confidence >= 0.12 ? best : null;
+}
+
+function quadCoverage(quad: Quad, width: number, height: number): number {
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  return (
+    ((Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys))) /
+    Math.max(1, width * height)
+  );
+}
+
+function borderTouchCount(
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  width: number,
+  height: number
+): number {
+  const m = 0.025;
+  return (
+    (minX < width * m ? 1 : 0) +
+    (maxX > width * (1 - m) ? 1 : 0) +
+    (minY < height * m ? 1 : 0) +
+    (maxY > height * (1 - m) ? 1 : 0)
+  );
+}
+
+/** Mid-size docs/cards win; near-full desk floods can never look “locked”. */
+function rankDetection(
+  quad: Quad,
+  sobel: Float32Array,
+  gray: Float32Array,
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  prior: number
+): number {
+  void gray;
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const cov = ((maxX - minX) * (maxY - minY)) / Math.max(1, width * height);
+  const bw = maxX - minX;
+  const bh = maxY - minY;
+  const aspect = bw / Math.max(1, bh);
+  const borders = borderTouchCount(minX, minY, maxX, maxY, width, height);
+
+  if (cov < 0.025 || cov > 0.72) return Math.min(prior, 0.15);
+  if (borders >= 3) return Math.min(prior, 0.18);
+  if (borders >= 2 && cov > 0.4) return Math.min(prior, 0.22);
+
+  const peri = perimeterEdgeScore(sobel, width, height, minX, minY, maxX, maxY);
+  const interior = interiorEdgeMean(sobel, width, height, minX, minY, maxX, maxY);
+  const chroma = meanChroma(rgba, width, height, minX, minY, maxX, maxY);
+  const centerDist =
+    Math.hypot((minX + maxX) / 2 - width / 2, (minY + maxY) / 2 - height / 2) /
+    (Math.hypot(width, height) / 2);
+
+  let score = prior * 0.3;
+  score += Math.min(0.28, peri / 140);
+  if (chroma > 28) score += Math.min(0.24, chroma / 110);
+  else score += Math.min(0.16, Math.max(0, 45 - interior) / 45 * 0.16);
+
+  if (cov >= 0.03 && cov <= 0.18) score += 0.18;
+  else if (cov > 0.18 && cov <= 0.45) score += 0.14;
+  else if (cov > 0.45 && cov <= 0.55) score += 0.02;
+  else score -= 0.14;
+
+  if (aspect >= 0.55 && aspect <= 0.9) score += 0.1;
+  else if (aspect >= 1.25 && aspect <= 1.75) score += 0.14;
+  else if (aspect >= 0.9 && aspect <= 1.25) score += 0.04;
+
+  score += (1 - Math.min(1, centerDist)) * 0.08;
+  if (borders >= 2) score -= 0.14;
+  if (cov > 0.58) score = Math.min(score, 0.3);
+  else if (cov > 0.48) score = Math.min(score, 0.46);
+  if (peri < 26) score = Math.min(score, 0.28);
+
+  return Math.max(0, Math.min(0.97, score));
+}
+
+function meanChroma(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): number {
+  const ix0 = Math.max(0, Math.floor(x0 + (x1 - x0) * 0.15));
+  const iy0 = Math.max(0, Math.floor(y0 + (y1 - y0) * 0.15));
+  const ix1 = Math.min(width - 1, Math.floor(x1 - (x1 - x0) * 0.15));
+  const iy1 = Math.min(height - 1, Math.floor(y1 - (y1 - y0) * 0.15));
+  if (ix1 <= ix0 || iy1 <= iy0) return 0;
+  let sum = 0;
+  let n = 0;
+  for (let y = iy0; y <= iy1; y += 3) {
+    for (let x = ix0; x <= ix1; x += 3) {
+      const i = (y * width + x) * 4;
+      sum += Math.max(rgba[i], rgba[i + 1], rgba[i + 2]) - Math.min(rgba[i], rgba[i + 1], rgba[i + 2]);
+      n++;
+    }
+  }
+  return n ? sum / n : 0;
+}
+
+/** Orange/colored ID cards — luminance alone often blends into the desk. */
+function detectColorCardBlob(
+  rgba: Uint8ClampedArray,
+  gray: Float32Array,
+  width: number,
+  height: number
+): EdgeDetectResult | null {
+  const scale = 2;
+  const dw = Math.floor(width / scale);
+  const dh = Math.floor(height / scale);
+  if (dw < 8 || dh < 8) return null;
+
+  const mask = new Uint8Array(dw * dh);
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const sx = x * scale;
+      const sy = y * scale;
+      const i = (sy * width + sx) * 4;
+      const chroma =
+        Math.max(rgba[i], rgba[i + 1], rgba[i + 2]) -
+        Math.min(rgba[i], rgba[i + 1], rgba[i + 2]);
+      const lum = gray[sy * width + sx];
+      mask[y * dw + x] = chroma >= 32 && lum > 35 && lum < 245 ? 1 : 0;
     }
   }
 
-  // Edge rectangle often wins for cards on similar-luminance desks
-  if (
-    edgeRect &&
-    edgeRect.confidence >= best.confidence * 0.92 &&
-    edgeRect.confidence >= 0.4
-  ) {
-    const snapped = snapQuadToEdges(edgeRect.quad, sobel, width, height);
-    best = {
-      quad: snapped,
-      confidence: Math.min(0.98, edgeRect.confidence + 0.04),
-    };
-  } else {
-    best = {
-      quad: snapQuadToEdges(best.quad, sobel, width, height),
-      confidence: best.confidence,
-    };
+  const comps = findTopComponents(mask, dw, dh, 6);
+  let best: EdgeDetectResult | null = null;
+
+  for (const c of comps) {
+    const minX = c.minX * scale;
+    const minY = c.minY * scale;
+    const maxX = Math.min(width - 1, (c.maxX + 1) * scale);
+    const maxY = Math.min(height - 1, (c.maxY + 1) * scale);
+    const bw = maxX - minX;
+    const bh = maxY - minY;
+    const coverage = (bw * bh) / (width * height);
+    const aspect = bw / Math.max(1, bh);
+    const fill =
+      c.count / Math.max(1, (c.maxX - c.minX + 1) * (c.maxY - c.minY + 1));
+    const borders = borderTouchCount(minX, minY, maxX, maxY, width, height);
+
+    if (coverage < 0.02 || coverage > 0.35) continue;
+    if (aspect < 0.45 || aspect > 2.3) continue;
+    if (fill < 0.45 || borders >= 2) continue;
+
+    const padX = Math.max(1, bw * 0.02);
+    const padY = Math.max(1, bh * 0.02);
+    const quad = orderQuad([
+      { x: minX + padX, y: minY + padY },
+      { x: maxX - padX, y: minY + padY },
+      { x: maxX - padX, y: maxY - padY },
+      { x: minX + padX, y: maxY - padY },
+    ]);
+
+    let confidence =
+      0.62 + Math.min(0.18, fill * 0.22) + Math.min(0.12, (0.22 - coverage) * 0.6);
+    if (aspect >= 1.35 && aspect <= 1.75) confidence += 0.12;
+    if (coverage >= 0.03 && coverage <= 0.2) confidence += 0.1;
+    confidence = Math.min(0.95, confidence);
+
+    if (!best || confidence > best.confidence) best = { quad, confidence };
   }
 
   return best;
+}
+
+type CompBox = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  count: number;
+};
+
+function findTopComponents(
+  mask: Uint8Array,
+  dw: number,
+  dh: number,
+  maxKeep: number
+): CompBox[] {
+  const seen = new Uint8Array(dw * dh);
+  const stack = new Int32Array(dw * dh);
+  const comps: CompBox[] = [];
+
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const start = y * dw + x;
+      if (!mask[start] || seen[start]) continue;
+      let sp = 0;
+      stack[sp++] = start;
+      seen[start] = 1;
+      let count = 0;
+      let minX = x;
+      let maxX = x;
+      let minY = y;
+      let maxY = y;
+      while (sp > 0) {
+        const i = stack[--sp];
+        const cx = i % dw;
+        const cy = (i / dw) | 0;
+        count++;
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+        for (const n of [i - 1, i + 1, i - dw, i + dw]) {
+          if (n < 0 || n >= mask.length) continue;
+          const nx = n % dw;
+          const ny = (n / dw) | 0;
+          if (Math.abs(nx - cx) + Math.abs(ny - cy) !== 1) continue;
+          if (!mask[n] || seen[n]) continue;
+          seen[n] = 1;
+          stack[sp++] = n;
+        }
+      }
+      if (count >= 20) comps.push({ minX, minY, maxX, maxY, count });
+    }
+  }
+  comps.sort((a, b) => b.count - a.count);
+  return comps.slice(0, maxKeep);
 }
 
 function computeSobel(
@@ -167,29 +368,29 @@ function detectRectangleByEdgeScore(
   width: number,
   height: number
 ): EdgeDetectResult | null {
-  let bestScore = 0;
+  let bestScore = -1e9;
   let best: { minX: number; minY: number; maxX: number; maxY: number } | null =
     null;
 
-  const aspects = [1.58, 1.414, 1.3, 1.0, 0.85, 0.707, 0.63, 0.55];
-  const coverages = [0.1, 0.16, 0.22, 0.28, 0.36, 0.48, 0.58];
+  const aspects = [1.586, 1.414, 1.3, 1.0, 0.85, 0.707, 0.63];
+  const coverages = [0.04, 0.07, 0.1, 0.14, 0.2, 0.28, 0.38, 0.48];
 
   for (const cov of coverages) {
     for (const aspect of aspects) {
       let rectH = Math.sqrt((width * height * cov) / aspect);
       let rectW = rectH * aspect;
-      if (rectW > width * 0.95) {
-        rectW = width * 0.92;
+      if (rectW > width * 0.92) {
+        rectW = width * 0.88;
         rectH = rectW / aspect;
       }
-      if (rectH > height * 0.95) {
-        rectH = height * 0.92;
+      if (rectH > height * 0.92) {
+        rectH = height * 0.88;
         rectW = rectH * aspect;
       }
-      if (rectW < 24 || rectH < 24) continue;
+      if (rectW < 20 || rectH < 20) continue;
 
-      const stepX = Math.max(6, Math.round(width * 0.04));
-      const stepY = Math.max(6, Math.round(height * 0.04));
+      const stepX = Math.max(5, Math.round(width * 0.035));
+      const stepY = Math.max(5, Math.round(height * 0.035));
       const maxX0 = Math.max(0, width - rectW);
       const maxY0 = Math.max(0, height - rectH);
 
@@ -197,10 +398,14 @@ function detectRectangleByEdgeScore(
         for (let x0 = 0; x0 <= maxX0; x0 += stepX) {
           const x1 = x0 + rectW;
           const y1 = y0 + rectH;
+          if (borderTouchCount(x0, y0, x1, y1, width, height) >= 3) continue;
           const score = perimeterEdgeScore(sobel, width, height, x0, y0, x1, y1);
-          // Prefer quiet paper interior (white page) over busy regions
           const interior = interiorEdgeMean(sobel, width, height, x0, y0, x1, y1);
-          const ranked = score - interior * 0.55;
+          const cx = (x0 + x1) / 2 / width - 0.5;
+          const cy = (y0 + y1) / 2 / height - 0.5;
+          const centerBonus = 16 * (1 - Math.min(1, Math.hypot(cx, cy) * 2));
+          const sizeBonus = cov <= 0.2 ? 16 : cov <= 0.4 ? 6 : -12;
+          const ranked = score - interior * 0.65 + centerBonus + sizeBonus;
           if (ranked > bestScore) {
             bestScore = ranked;
             best = { minX: x0, minY: y0, maxX: x1, maxY: y1 };
@@ -210,7 +415,7 @@ function detectRectangleByEdgeScore(
     }
   }
 
-  if (!best || bestScore < 22) return null;
+  if (!best || bestScore < 18) return null;
 
   // Local refine: nudge edges ±4% toward stronger perimeter
   const refined = refineRectEdges(sobel, width, height, best);
@@ -227,9 +432,10 @@ function detectRectangleByEdgeScore(
   const coverage =
     ((refined.maxX - refined.minX) * (refined.maxY - refined.minY)) /
     (width * height);
-  let confidence = Math.min(0.96, (bestScore / 120) * 0.75 + 0.2);
-  if (coverage < 0.08 || coverage > 0.9) confidence *= 0.55;
-  else if (coverage >= 0.1 && coverage <= 0.55) confidence = Math.min(0.97, confidence + 0.08);
+  let confidence = Math.min(0.9, (bestScore / 100) * 0.5 + 0.28);
+  if (coverage > 0.5) confidence = Math.min(confidence, 0.38);
+  else if (coverage >= 0.04 && coverage <= 0.22) confidence = Math.min(0.93, confidence + 0.14);
+  else if (coverage >= 0.22 && coverage <= 0.45) confidence = Math.min(0.9, confidence + 0.08);
 
   return { quad, confidence };
 }
@@ -382,33 +588,6 @@ function snapQuadToEdges(
   return orderQuad(snapped);
 }
 
-function cornerAgreement(a: Quad, b: Quad, width: number, height: number): number {
-  const diag = Math.hypot(width, height) || 1;
-  let sum = 0;
-  for (let i = 0; i < 4; i++) {
-    sum += 1 - Math.min(1, Math.hypot(a[i].x - b[i].x, a[i].y - b[i].y) / (diag * 0.18));
-  }
-  return sum / 4;
-}
-
-/** Pull AABB corners slightly toward strong Sobel peaks when close */
-function refinePaperWithSobel(paper: Quad, sobel: Quad, width: number, height: number): Quad {
-  const maxDist = Math.hypot(width, height) * 0.12;
-  const out: Point[] = [];
-  for (let i = 0; i < 4; i++) {
-    const d = Math.hypot(paper[i].x - sobel[i].x, paper[i].y - sobel[i].y);
-    if (d < maxDist) {
-      out.push({
-        x: paper[i].x * 0.35 + sobel[i].x * 0.65,
-        y: paper[i].y * 0.35 + sobel[i].y * 0.65,
-      });
-    } else {
-      out.push(paper[i]);
-    }
-  }
-  return orderQuad(out);
-}
-
 /** Detect document from luminance + largest bright connected component (A4 on desk) */
 function detectPaperQuad(
   gray: Float32Array,
@@ -453,13 +632,24 @@ function detectPaperQuad(
       0.42 +
       Math.min(0.35, best.coverage * 0.5) +
       Math.min(0.25, best.fill * 0.35);
-    if (best.coverage > 0.88) confidence *= 0.65;
+    if (best.coverage > 0.88) confidence *= 0.35;
+    if (best.coverage > 0.55) confidence *= 0.45;
     if (best.coverage < 0.18) confidence *= 0.7;
     const aspect =
       (best.maxX - best.minX) / Math.max(1, best.maxY - best.minY);
     if (aspect > 0.55 && aspect < 1.85) confidence = Math.min(0.98, confidence + 0.08);
+    const borders = borderTouchCount(
+      best.minX,
+      best.minY,
+      best.maxX,
+      best.maxY,
+      width,
+      height
+    );
+    if (borders >= 3) confidence = Math.min(confidence, 0.2);
+    if (borders >= 2 && best.coverage > 0.4) confidence = Math.min(confidence, 0.28);
     // Huge near-full-frame AABB is usually “desk flood” — demote hard
-    if (best.coverage > 0.75 && best.fill < 0.55) confidence *= 0.4;
+    if (best.coverage > 0.65) confidence = Math.min(confidence, 0.22);
 
     aabbResult = { quad, confidence: Math.max(0, Math.min(0.98, confidence)) };
   }
@@ -471,8 +661,8 @@ function detectPaperQuad(
 }
 
 /**
- * Find largest bright connected component (downsampled).
- * Wins for white paper on a mid-tone desk where simple AABB floods the whole table.
+ * Bright document blobs — prefers mid-size paper over desk flood.
+ * Evaluates top connected components, not only the largest (desk).
  */
 function detectBrightDocumentBlob(
   gray: Float32Array,
@@ -488,149 +678,68 @@ function detectBrightDocumentBlob(
   const p88 = samples[Math.floor(samples.length * 0.88)] ?? 200;
 
   const threshCandidates = [
-    Math.min(242, Math.max(p50 + 18, p75)),
-    Math.min(242, (p75 + p88) / 2),
-    Math.min(248, p88 - 2),
+    Math.min(242, Math.max(p50 + 22, p75 + 4)),
+    Math.min(245, (p75 + p88) / 2 + 4),
+    Math.min(250, p88 + 2),
   ];
 
   let best: EdgeDetectResult | null = null;
-
-  for (const thresh of threshCandidates) {
-    const comp = largestBrightComponent(gray, width, height, thresh);
-    if (!comp) continue;
-
-    const bw = comp.maxX - comp.minX;
-    const bh = comp.maxY - comp.minY;
-    const aspect = bw / Math.max(1, bh);
-    if (comp.coverage < 0.07 || comp.coverage > 0.78) continue;
-    if (aspect < 0.42 || aspect > 2.4) continue;
-    if (comp.fill < 0.38) continue;
-
-    const padX = Math.max(1, bw * 0.01);
-    const padY = Math.max(1, bh * 0.01);
-    const quad = orderQuad([
-      { x: comp.minX + padX, y: comp.minY + padY },
-      { x: comp.maxX - padX, y: comp.minY + padY },
-      { x: comp.maxX - padX, y: comp.maxY - padY },
-      { x: comp.minX + padX, y: comp.maxY - padY },
-    ]);
-
-    let confidence =
-      0.52 +
-      Math.min(0.22, comp.fill * 0.28) +
-      Math.min(0.18, comp.coverage * 0.45);
-    // Portrait A4 ≈ 0.707, landscape ≈ 1.414
-    if (aspect > 0.58 && aspect < 0.86) confidence += 0.14;
-    else if (aspect > 1.15 && aspect < 1.65) confidence += 0.1;
-    if (comp.coverage >= 0.12 && comp.coverage <= 0.5) confidence += 0.08;
-    confidence = Math.min(0.97, confidence);
-
-    if (!best || confidence > best.confidence) {
-      best = { quad, confidence };
-    }
-  }
-
-  return best;
-}
-
-function largestBrightComponent(
-  gray: Float32Array,
-  width: number,
-  height: number,
-  thresh: number
-): {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  fill: number;
-  coverage: number;
-} | null {
   const scale = 2;
   const dw = Math.floor(width / scale);
   const dh = Math.floor(height / scale);
   if (dw < 8 || dh < 8) return null;
 
-  const mask = new Uint8Array(dw * dh);
-  for (let y = 0; y < dh; y++) {
-    for (let x = 0; x < dw; x++) {
-      mask[y * dw + x] = gray[y * scale * width + x * scale] >= thresh ? 1 : 0;
+  for (const thresh of threshCandidates) {
+    const mask = new Uint8Array(dw * dh);
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        mask[y * dw + x] = gray[y * scale * width + x * scale] >= thresh ? 1 : 0;
+      }
+    }
+
+    const comps = findTopComponents(mask, dw, dh, 8);
+    for (const c of comps) {
+      const minX = c.minX * scale;
+      const minY = c.minY * scale;
+      const maxX = Math.min(width - 1, (c.maxX + 1) * scale);
+      const maxY = Math.min(height - 1, (c.maxY + 1) * scale);
+      const bw = maxX - minX;
+      const bh = maxY - minY;
+      const coverage = (bw * bh) / (width * height);
+      const aspect = bw / Math.max(1, bh);
+      const fill =
+        c.count / Math.max(1, (c.maxX - c.minX + 1) * (c.maxY - c.minY + 1));
+      const borders = borderTouchCount(minX, minY, maxX, maxY, width, height);
+
+      // Desk floods touch many borders / cover most of the frame
+      if (borders >= 3) continue;
+      if (borders >= 2 && coverage > 0.35) continue;
+      if (coverage < 0.05 || coverage > 0.55) continue;
+      if (aspect < 0.45 || aspect > 2.3) continue;
+      if (fill < 0.4) continue;
+
+      const padX = Math.max(1, bw * 0.012);
+      const padY = Math.max(1, bh * 0.012);
+      const quad = orderQuad([
+        { x: minX + padX, y: minY + padY },
+        { x: maxX - padX, y: minY + padY },
+        { x: maxX - padX, y: maxY - padY },
+        { x: minX + padX, y: maxY - padY },
+      ]);
+
+      let confidence =
+        0.48 + Math.min(0.2, fill * 0.25) + Math.min(0.16, (0.4 - Math.abs(coverage - 0.28)) * 0.5);
+      if (aspect > 0.58 && aspect < 0.86) confidence += 0.12;
+      else if (aspect > 1.15 && aspect < 1.65) confidence += 0.1;
+      if (coverage >= 0.1 && coverage <= 0.4) confidence += 0.1;
+      if (borders === 0) confidence += 0.06;
+      confidence = Math.min(0.94, confidence);
+
+      if (!best || confidence > best.confidence) best = { quad, confidence };
     }
   }
 
-  const seen = new Uint8Array(dw * dh);
-  let bestCount = 0;
-  let bestBox: {
-    minX: number;
-    minY: number;
-    maxX: number;
-    maxY: number;
-    count: number;
-  } | null = null;
-
-  const stack = new Int32Array(dw * dh);
-
-  for (let y = 0; y < dh; y++) {
-    for (let x = 0; x < dw; x++) {
-      const start = y * dw + x;
-      if (!mask[start] || seen[start]) continue;
-
-      let sp = 0;
-      stack[sp++] = start;
-      seen[start] = 1;
-      let count = 0;
-      let minX = x;
-      let maxX = x;
-      let minY = y;
-      let maxY = y;
-
-      while (sp > 0) {
-        const i = stack[--sp];
-        const cx = i % dw;
-        const cy = (i / dw) | 0;
-        count++;
-        if (cx < minX) minX = cx;
-        if (cx > maxX) maxX = cx;
-        if (cy < minY) minY = cy;
-        if (cy > maxY) maxY = cy;
-
-        const neighbors = [i - 1, i + 1, i - dw, i + dw];
-        for (const n of neighbors) {
-          if (n < 0 || n >= mask.length) continue;
-          const nx = n % dw;
-          const ny = (n / dw) | 0;
-          // Prevent wrap on left/right edges
-          if (Math.abs(nx - cx) + Math.abs(ny - cy) !== 1) continue;
-          if (!mask[n] || seen[n]) continue;
-          seen[n] = 1;
-          stack[sp++] = n;
-        }
-      }
-
-      if (count > bestCount) {
-        bestCount = count;
-        bestBox = { minX, minY, maxX, maxY, count };
-      }
-    }
-  }
-
-  if (!bestBox || bestCount < 40) return null;
-
-  const boxArea = Math.max(
-    1,
-    (bestBox.maxX - bestBox.minX + 1) * (bestBox.maxY - bestBox.minY + 1)
-  );
-  const fill = bestCount / boxArea;
-  const coverage = (boxArea * scale * scale) / (width * height);
-
-  return {
-    minX: bestBox.minX * scale,
-    minY: bestBox.minY * scale,
-    maxX: Math.min(width - 1, (bestBox.maxX + 1) * scale),
-    maxY: Math.min(height - 1, (bestBox.maxY + 1) * scale),
-    fill,
-    coverage,
-  };
+  return best;
 }
 
 function findLuminanceBBox(
@@ -814,7 +923,7 @@ export function detectCornersFromCanvas(
 /** Detect corners from an HTMLImageElement / data URL canvas (uploads) */
 export function detectCornersFromImage(
   img: HTMLImageElement,
-  minConfidence = 0.35
+  minConfidence = DETECT_CONFIDENCE_MIN
 ): { quad: Quad; confidence: number } {
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || img.width;
