@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Point, Quad } from "@/lib/types";
+import { LOCK_CONFIDENCE } from "@/lib/image/perspective";
 import { cn } from "@/lib/utils";
 
 type Props = {
   imageSrc: string;
   corners: Quad;
   onChange: (corners: Quad) => void;
+  /** 0–1 detection confidence — teal when locked */
+  confidence?: number;
   className?: string;
 };
 
@@ -15,12 +18,18 @@ export function PerspectiveEditor({
   imageSrc,
   corners,
   onChange,
+  confidence = 0,
   className,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const [size, setSize] = useState({ w: 1, h: 1 });
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  const locked = confidence >= LOCK_CONFIDENCE;
+  const stroke = locked ? "#2dd4bf" : "#3b82f6";
+  const fill = locked ? "rgba(45,212,191,0.16)" : "rgba(59,130,246,0.14)";
+  const handle = locked ? "bg-teal-400" : "bg-blue-500";
 
   const syncSize = useCallback(() => {
     const img = imgRef.current;
@@ -74,7 +83,10 @@ export function PerspectiveEditor({
   return (
     <div
       ref={containerRef}
-      className={cn("relative touch-none select-none overflow-hidden rounded-xl bg-black", className)}
+      className={cn(
+        "relative touch-none select-none overflow-hidden rounded-xl bg-black",
+        className
+      )}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
@@ -91,9 +103,10 @@ export function PerspectiveEditor({
       <svg className="absolute inset-0 h-full w-full pointer-events-none">
         <polygon
           points={displayCorners.map((p) => `${p.x},${p.y}`).join(" ")}
-          fill="rgba(59,130,246,0.15)"
-          stroke="#3b82f6"
-          strokeWidth="2"
+          fill={fill}
+          stroke={stroke}
+          strokeWidth="2.5"
+          strokeDasharray={locked ? undefined : "8 5"}
         />
       </svg>
       {displayCorners.map((p, i) => (
@@ -101,7 +114,10 @@ export function PerspectiveEditor({
           key={i}
           type="button"
           aria-label={`Corner ${labels[i]}`}
-          className="absolute z-10 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-500 shadow-lg cursor-grab active:cursor-grabbing touch-none"
+          className={cn(
+            "absolute z-10 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-lg cursor-grab active:cursor-grabbing touch-none",
+            handle
+          )}
           style={{ left: p.x, top: p.y }}
           onPointerDown={onPointerDown(i)}
         />

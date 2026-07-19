@@ -1,4 +1,4 @@
-export type ScanFilter = "original" | "magic" | "grayscale" | "sharp";
+export type ScanFilter = "enhance" | "original" | "magic" | "grayscale" | "sharp";
 
 export type Point = { x: number; y: number };
 

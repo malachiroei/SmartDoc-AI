@@ -11,6 +11,60 @@ function toGrayscale(data: Uint8ClampedArray) {
   }
 }
 
+/**
+ * CamScanner default "auto" look: keep color, lift whites, deepen text,
+ * mild midtone contrast + light unsharp. Desk crop already removed by warp.
+ */
+function enhanceScan(data: Uint8ClampedArray, width: number, height: number) {
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const y = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    if (y < min) min = y;
+    if (y > max) max = y;
+  }
+
+  // Percentile-ish stretch: pull shadows/highlights slightly for auto-levels
+  const lo = Math.max(0, min + (max - min) * 0.04);
+  const hi = Math.min(255, max - (max - min) * 0.03);
+  const range = Math.max(1, hi - lo);
+
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      let v = ((data[i + c] - lo) / range) * 255;
+      // Mild S-curve for paper whitening + ink punch
+      const n = Math.max(0, Math.min(1, v / 255));
+      const curved = n < 0.5 ? 2 * n * n : 1 - 2 * (1 - n) * (1 - n);
+      v = curved * 255;
+      // Lift near-whites toward pure paper
+      if (v > 210) v = 255 - (255 - v) * 0.35;
+      data[i + c] = Math.max(0, Math.min(255, v));
+    }
+  }
+
+  sharpenLight(data, width, height);
+}
+
+function sharpenLight(data: Uint8ClampedArray, width: number, height: number) {
+  const copy = new Uint8ClampedArray(data);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      for (let c = 0; c < 3; c++) {
+        const i = (y * width + x) * 4 + c;
+        const center = copy[i];
+        const blur =
+          (copy[i - width * 4] +
+            copy[i + width * 4] +
+            copy[i - 4] +
+            copy[i + 4] +
+            center * 4) /
+          8;
+        data[i] = Math.max(0, Math.min(255, center + (center - blur) * 0.55));
+      }
+    }
+  }
+}
+
 /** Adaptive high-contrast B&W — CamScanner "Magic Color" style */
 function magicColor(data: Uint8ClampedArray, width: number, height: number) {
   const gray = new Uint8Array(width * height);
@@ -83,7 +137,9 @@ export function applyFilter(
 
   const img = cloneImageData(ctx, out.width, out.height);
 
-  if (filter === "grayscale") {
+  if (filter === "enhance") {
+    enhanceScan(img.data, out.width, out.height);
+  } else if (filter === "grayscale") {
     toGrayscale(img.data);
   } else if (filter === "magic") {
     magicColor(img.data, out.width, out.height);
@@ -96,6 +152,7 @@ export function applyFilter(
 }
 
 export const FILTER_LABELS: Record<ScanFilter, string> = {
+  enhance: "אוטומטי",
   original: "מקורי",
   magic: "צבע קסם",
   grayscale: "גווני אפור",

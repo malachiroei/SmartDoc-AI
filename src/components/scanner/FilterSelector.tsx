@@ -4,7 +4,7 @@ import type { ScanFilter } from "@/lib/types";
 import { FILTER_LABELS } from "@/lib/image/filters";
 import { cn } from "@/lib/utils";
 
-const FILTERS: ScanFilter[] = ["original", "magic", "grayscale", "sharp"];
+const FILTERS: ScanFilter[] = ["enhance", "original", "magic", "grayscale", "sharp"];
 
 type Props = {
   value: ScanFilter;
@@ -59,6 +59,7 @@ export function FilterSelector({
           <div
             className={cn(
               "h-14 bg-[var(--surface-2)]",
+              f === "enhance" && "contrast-125 brightness-105",
               f === "grayscale" && "grayscale",
               f === "magic" && "contrast-150 brightness-110 saturate-0",
               f === "sharp" && "contrast-125"
