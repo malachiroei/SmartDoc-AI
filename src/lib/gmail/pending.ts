@@ -50,6 +50,29 @@ export async function findPendingDuplicate(
   return (data as PendingFiling) ?? null;
 }
 
+/** True if this Drive file was already queued or filed. */
+export async function findPendingByDriveFileId(
+  driveFileId: string
+): Promise<PendingFiling | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("pending_filings")
+    .select("*")
+    .eq("drive_file_id", driveFileId)
+    .in("status", ["pending", "filed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(mapSupabaseError(error));
+  return (data as PendingFiling) ?? null;
+}
+
+export async function wasDriveFileSeen(driveFileId: string): Promise<boolean> {
+  const row = await findPendingByDriveFileId(driveFileId);
+  return Boolean(row);
+}
+
 /** True if this Gmail attachment was already queued or filed (any status except dismissed). */
 export async function wasGmailAttachmentSeen(
   gmailMessageId: string,

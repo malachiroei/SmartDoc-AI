@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import type { drive_v3 } from "googleapis";
-import { SMARTDOC_ARCHIVE_FOLDER } from "@/lib/google/constants";
+import { SMARTDOC_ARCHIVE_FOLDER, SMARTDOC_INBOX_FOLDER } from "@/lib/google/constants";
 import {
   getAuthenticatedDrive,
   requireDriveAuth,
@@ -248,6 +248,102 @@ export async function trashDriveFile(fileId: string): Promise<void> {
     fileId,
     requestBody: { trashed: true },
   });
+}
+
+/** Ensure root-level SmartDoc_Inbox exists (CamScanner target). */
+export async function ensureSmartDocInbox(
+  drive?: drive_v3.Drive
+): Promise<{ id: string; name: string }> {
+  if (drive) {
+    return findOrCreateFolder(drive, SMARTDOC_INBOX_FOLDER, "root");
+  }
+  const auth = await getAuthenticatedDrive();
+  if (!auth) {
+    return { id: `demo-inbox-${Date.now()}`, name: SMARTDOC_INBOX_FOLDER };
+  }
+  return findOrCreateFolder(auth.drive, SMARTDOC_INBOX_FOLDER, "root");
+}
+
+export type DriveInboxFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string;
+  modifiedTime?: string;
+  size?: number;
+};
+
+/** List PDF/image files directly inside SmartDoc_Inbox (not nested). */
+export async function listInboxFiles(): Promise<{
+  folderId: string;
+  files: DriveInboxFile[];
+  demo?: boolean;
+}> {
+  const auth = await getAuthenticatedDrive();
+  if (!auth) {
+    return { folderId: "demo-inbox", files: [], demo: true };
+  }
+
+  const inbox = await findOrCreateFolder(
+    auth.drive,
+    SMARTDOC_INBOX_FOLDER,
+    "root"
+  );
+
+  const res = await auth.drive.files.list({
+    q: `'${inbox.id}' in parents and trashed=false and (mimeType='application/pdf' or mimeType contains 'image/')`,
+    fields:
+      "files(id,name,mimeType,webViewLink,modifiedTime,size)",
+    pageSize: 40,
+    orderBy: "modifiedTime desc",
+    spaces: "drive",
+  });
+
+  const files: DriveInboxFile[] = (res.data.files ?? [])
+    .filter((f) => f.id && f.name)
+    .map((f) => ({
+      id: f.id!,
+      name: f.name!,
+      mimeType: f.mimeType ?? "application/octet-stream",
+      webViewLink: f.webViewLink ?? undefined,
+      modifiedTime: f.modifiedTime ?? undefined,
+      size: f.size ? Number(f.size) : undefined,
+    }));
+
+  return { folderId: inbox.id, files };
+}
+
+/** Download file bytes from Drive. */
+export async function downloadDriveFileBuffer(
+  fileId: string
+): Promise<{ buffer: Buffer; mimeType: string; name: string }> {
+  const auth = await getAuthenticatedDrive();
+  if (!auth || fileId.startsWith("demo-")) {
+    return {
+      buffer: Buffer.from(
+        "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+      ),
+      mimeType: "application/pdf",
+      name: "demo.pdf",
+    };
+  }
+
+  const meta = await auth.drive.files.get({
+    fileId,
+    fields: "id,name,mimeType",
+  });
+
+  const media = await auth.drive.files.get(
+    { fileId, alt: "media" },
+    { responseType: "arraybuffer" }
+  );
+
+  const data = media.data as ArrayBuffer;
+  return {
+    buffer: Buffer.from(data),
+    mimeType: meta.data.mimeType ?? "application/octet-stream",
+    name: meta.data.name ?? fileId,
+  };
 }
 
 export async function assertDriveAuthenticated(): Promise<boolean> {

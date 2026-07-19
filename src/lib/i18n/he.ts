@@ -8,8 +8,8 @@ export const he = {
     badge: "זיהוי AI · למידת 3 אישורים",
     title: "סרקו. למדו. תייקו לבד.",
     subtitle:
-      "אחרי כל סריקה, הבינה המלאכותית מסווגת את המסמך. אשרו תיקייה שלוש פעמים — ומאותו רגע SmartDoc יתייק את אותו ספק אוטומטית.",
-    startScan: "התחלת סריקה",
+      "סרקו עם CamScanner לתיקיית SmartDoc_Inbox ב-Drive. הבינה מסווגת אוטומטית — אשרו תיקייה שלוש פעמים ומאותו רגע התיוק הופך אוטומטי.",
+    startScan: "משיכה מ-Drive",
     featureClassify: "סיווג AI",
     featureClassifyBody:
       "GPT-4o / Gemini / Claude מזהים ספק, סוג מסמך והצעת תיקייה בעברית.",
@@ -20,7 +20,7 @@ export const he = {
     featureStrikeBody: "באישור השלישי התיוק הופך אוטומטי לגמרי.",
   },
   scanner: {
-    title: "סורק",
+    title: "סריקה מ-Drive",
     upload: "העלאת מסמך / תמונה",
     processing: "מעבד…",
     cancel: "ביטול",
@@ -41,6 +41,19 @@ export const he = {
     saveContinue: "שמירת הסריקה והמשך",
     openFailed: "לא ניתן לפתוח את הקובץ",
     pdfEmpty: "ה־PDF ריק או ללא עמודים",
+  },
+  driveInbox: {
+    title: "משיכה מ-Google Drive",
+    subtitle: (folder: string) =>
+      `קבצים חדשים מתיקיית ${folder} מסווגים אוטומטית ומופיעים באישור`,
+    hint: "סרקו עם CamScanner ישירות לתיקיית SmartDoc_Inbox ב-Drive. אחרי שינוי הרשאות — התחברו מחדש ל-Google.",
+    refresh: "רענן מ-Drive",
+    ingesting: "מושך ומסווג…",
+    noNew: "אין קבצים חדשים בתיקיית ה-Inbox",
+    ingestError: "משיכה מ-Drive נכשלה",
+    ingestTimeout: "המשיכה ארכה מדי — נסו שוב",
+    lastSync: (time: string) => `סנכרון אחרון: ${time}`,
+    pendingBadge: "ממתין לאישור",
   },
   camera: {
     starting: "מפעיל מצלמה…",
