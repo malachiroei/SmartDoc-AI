@@ -54,6 +54,13 @@ export const he = {
     ingestTimeout: "המשיכה ארכה מדי — נסו שוב",
     lastSync: (time: string) => `סנכרון אחרון: ${time}`,
     pendingBadge: "ממתין לאישור",
+    openScanner: "סריקה (Drive / סורק)",
+    scanNative: "סריקה עם סורק Google",
+    openDriveHint: "נפתח Drive — סרקו ושמרו לתיקיית SmartDoc_Inbox",
+    scanUploading: "מעלה את הסריקה ל-Inbox…",
+    scanDone: "הסריקה הועלתה — מריץ סיווג…",
+    scanError: "הסריקה נכשלה או בוטלה",
+    webOnly: "סריקה Native זמינה באפליקציית Android",
   },
   camera: {
     starting: "מפעיל מצלמה…",
