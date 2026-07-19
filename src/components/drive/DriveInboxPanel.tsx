@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FolderSync, Loader2, RefreshCw } from "lucide-react";
+import { Camera, FolderSync, Loader2, RefreshCw } from "lucide-react";
 import { ingestDriveInbox } from "@/lib/drive/client";
 import { ApiRequestError } from "@/lib/api/client-fetch";
 import { SMARTDOC_INBOX_FOLDER } from "@/lib/google/constants";
+import { DriveScanner, isNativeAndroid } from "@/lib/native/drive-scanner";
 import { he } from "@/lib/i18n/he";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -22,9 +23,18 @@ type ProcessedItem = {
   autonomous?: boolean;
 };
 
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
 export function DriveInboxPanel() {
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [native, setNative] = useState(false);
   const [pendingKey, setPendingKey] = useState(0);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [lastResult, setLastResult] = useState<{
@@ -33,6 +43,10 @@ export function DriveInboxPanel() {
     demo: boolean;
   } | null>(null);
   const busyRef = useRef(false);
+
+  useEffect(() => {
+    setNative(isNativeAndroid());
+  }, []);
 
   const runIngest = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -51,7 +65,10 @@ export function DriveInboxPanel() {
         if (!opts?.silent) {
           if (result.notifications.length > 0) {
             for (const n of result.notifications) {
-              toast(n, result.processed.some((p) => p.autonomous) ? "success" : "auto");
+              toast(
+                n,
+                result.processed.some((p) => p.autonomous) ? "success" : "auto"
+              );
             }
           } else if (result.processed.length === 0) {
             toast(he.driveInbox.noNew);
@@ -80,7 +97,58 @@ export function DriveInboxPanel() {
     [toast]
   );
 
-  // Initial pull + auto poll
+  const openDriveScanner = async () => {
+    if (!isNativeAndroid()) {
+      toast(he.driveInbox.webOnly);
+      return;
+    }
+    setScanBusy(true);
+    try {
+      const res = await DriveScanner.openDriveScanner();
+      toast(res.message ?? he.driveInbox.openDriveHint, "auto");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : he.driveInbox.scanError);
+    } finally {
+      setScanBusy(false);
+    }
+  };
+
+  const scanWithMlKit = async () => {
+    if (!isNativeAndroid()) {
+      toast(he.driveInbox.webOnly);
+      return;
+    }
+    setScanBusy(true);
+    try {
+      const scanned = await DriveScanner.scanDocument();
+      toast(he.driveInbox.scanUploading, "auto");
+
+      const blob = base64ToBlob(scanned.base64, scanned.mimeType);
+      const form = new FormData();
+      form.append("file", blob, scanned.fileName);
+      form.append("fileName", scanned.fileName);
+      form.append("mimeType", scanned.mimeType);
+      form.append("target", "inbox");
+
+      const up = await fetch("/api/drive/upload", {
+        method: "POST",
+        body: form,
+      });
+      if (!up.ok) {
+        const err = (await up.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? he.driveInbox.scanError);
+      }
+
+      toast(he.driveInbox.scanDone, "success");
+      await runIngest();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : he.driveInbox.scanError;
+      if (!/cancel/i.test(msg)) toast(msg);
+    } finally {
+      setScanBusy(false);
+    }
+  };
+
   useEffect(() => {
     void runIngest({ silent: true });
     const id = window.setInterval(() => {
@@ -114,15 +182,44 @@ export function DriveInboxPanel() {
           </div>
         </div>
 
+        {native && (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              size="lg"
+              className="w-full flex-1"
+              onClick={() => void scanWithMlKit()}
+              disabled={busy || scanBusy}
+            >
+              {scanBusy ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Camera className="h-5 w-5" />
+              )}
+              {he.driveInbox.scanNative}
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              className="w-full flex-1"
+              onClick={() => void openDriveScanner()}
+              disabled={busy || scanBusy}
+            >
+              {he.driveInbox.openScanner}
+            </Button>
+          </div>
+        )}
+
         <Button
           size="lg"
+          variant={native ? "secondary" : "primary"}
           className="w-full"
           onClick={() => void runIngest()}
-          disabled={busy}
+          disabled={busy || scanBusy}
         >
           {busy ? (
             <>
-              <Loader2 className="h-5 w-5 animate-spin" /> {he.driveInbox.ingesting}
+              <Loader2 className="h-5 w-5 animate-spin" />{" "}
+              {he.driveInbox.ingesting}
             </>
           ) : (
             <>

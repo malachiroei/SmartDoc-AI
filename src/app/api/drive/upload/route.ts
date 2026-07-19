@@ -20,7 +20,8 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const file = form.get("file");
-    const folderId = String(form.get("folderId") ?? "root");
+    let folderId = String(form.get("folderId") ?? "root");
+    const target = String(form.get("target") ?? "");
     const fileName = String(form.get("fileName") ?? "scan.pdf");
     const mimeType = String(form.get("mimeType") ?? "application/pdf");
 
@@ -39,6 +40,12 @@ export async function POST(request: Request) {
         },
         { status: 401 }
       );
+    }
+
+    if (target === "inbox" && auth) {
+      const { ensureSmartDocInbox } = await import("@/lib/drive/server");
+      const inbox = await ensureSmartDocInbox(auth.drive);
+      folderId = inbox.id;
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
