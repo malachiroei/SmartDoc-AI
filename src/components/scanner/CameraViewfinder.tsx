@@ -5,20 +5,22 @@ import type { Point, Quad } from "@/lib/types";
 import {
   detectDocumentEdges,
   detectCornersFromCanvas,
-  defaultQuad,
+  guidanceQuad,
   fullFrameQuad,
+  LOCK_CONFIDENCE,
+  DETECT_CONFIDENCE_MIN,
 } from "@/lib/image/perspective";
 import { cn } from "@/lib/utils";
 import { he } from "@/lib/i18n/he";
 
 type Props = {
-  onCapture: (dataUrl: string, corners: Quad) => void;
+  onCapture: (dataUrl: string, corners: Quad, confidence: number) => void;
   edgeDetection?: boolean;
   className?: string;
 };
 
-/** Below this confidence in live preview, use soft inset instead of full desk */
-const EDGE_CONFIDENCE_MIN = 0.45;
+/** Below this confidence in live preview, show guidance instead of a fake lock */
+const EDGE_CONFIDENCE_MIN = LOCK_CONFIDENCE;
 const CORNER_HIT_RADIUS = 36;
 
 /**
@@ -208,6 +210,7 @@ export function CameraViewfinder({
     const sample = document.createElement("canvas");
     const sampleCtx = sample.getContext("2d", { willReadFrequently: true })!;
     let lastDetect = 0;
+    let liveConf = 0;
 
     const drawOverlay = (w: number, h: number) => {
       overlay.width = w;
@@ -217,8 +220,17 @@ export function CameraViewfinder({
       const corners = cornersRef.current;
       if (!corners) return;
 
-      octx.strokeStyle = "rgba(59, 130, 246, 0.95)";
-      octx.fillStyle = "rgba(59, 130, 246, 0.12)";
+      // Teal lock when confident (CamScanner-style); blue while searching
+      const locked = liveConf >= 0.45;
+      const stroke = locked
+        ? "rgba(45, 212, 191, 0.98)"
+        : "rgba(59, 130, 246, 0.95)";
+      const fill = locked
+        ? "rgba(45, 212, 191, 0.14)"
+        : "rgba(59, 130, 246, 0.12)";
+      const handle = locked ? "#2dd4bf" : "#3b82f6";
+      octx.strokeStyle = stroke;
+      octx.fillStyle = fill;
       octx.lineWidth = Math.max(3, w / 400);
       octx.beginPath();
       octx.moveTo(corners[0].x, corners[0].y);
@@ -230,7 +242,7 @@ export function CameraViewfinder({
       for (const c of corners) {
         octx.beginPath();
         octx.arc(c.x, c.y, 14, 0, Math.PI * 2);
-        octx.fillStyle = "#3b82f6";
+        octx.fillStyle = handle;
         octx.fill();
         octx.strokeStyle = "#fff";
         octx.lineWidth = 3;
@@ -254,7 +266,7 @@ export function CameraViewfinder({
           const img = sampleCtx.getImageData(0, 0, sw, sh);
           const detected = detectDocumentEdges(img, sw, sh);
 
-          if (detected && detected.confidence >= 0.28) {
+          if (detected && detected.confidence >= DETECT_CONFIDENCE_MIN) {
             const scaleX = w / sw;
             const scaleY = h / sh;
             const scaled = detected.quad.map((p: Point) => ({
@@ -278,12 +290,15 @@ export function CameraViewfinder({
 
             cornersRef.current = smoothed;
             setLiveCorners(smoothed);
+            liveConf = detected.confidence;
             setEdgeConfidence(detected.confidence);
           } else {
             smoothHistoryRef.current = [];
-            cornersRef.current = defaultQuad(w, h, 0.06);
+            // No fake full-page blue box — soft guidance only
+            cornersRef.current = guidanceQuad(w, h);
             setLiveCorners(cornersRef.current);
-            setEdgeConfidence(detected?.confidence ?? 0);
+            liveConf = detected?.confidence ?? 0;
+            setEdgeConfidence(liveConf);
           }
         } else if (!cornersRef.current) {
           cornersRef.current = fullFrameQuad(w, h);
@@ -312,16 +327,16 @@ export function CameraViewfinder({
 
     // Keep user-adjusted corners (drag / Full Page) — don't overwrite on shutter
     if (manualLockRef.current && cornersRef.current) {
-      onCapture(dataUrl, cornersRef.current);
+      onCapture(dataUrl, cornersRef.current, edgeConfidence ?? 1);
       return;
     }
 
     // CamScanner-style: re-detect on the still frame at higher quality
-    const refined = detectCornersFromCanvas(canvas, 0.32);
+    const refined = detectCornersFromCanvas(canvas, DETECT_CONFIDENCE_MIN);
     cornersRef.current = refined.quad;
     setLiveCorners(refined.quad);
     setEdgeConfidence(refined.confidence);
-    onCapture(dataUrl, refined.quad);
+    onCapture(dataUrl, refined.quad, refined.confidence);
   };
 
   const flip = () =>
@@ -361,7 +376,7 @@ export function CameraViewfinder({
     ? he.camera.manual
     : edgeConfidence != null && edgeConfidence >= EDGE_CONFIDENCE_MIN
       ? he.camera.edge
-      : he.camera.fullFrameHint;
+      : he.camera.placeDocument;
 
   return (
     <div

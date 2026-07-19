@@ -18,8 +18,11 @@ import {
   defaultQuad,
   detectCornersFromImage,
   fullFrameQuad,
+  guidanceQuad,
   loadImage,
   warpPerspective,
+  DETECT_CONFIDENCE_MIN,
+  LOCK_CONFIDENCE,
 } from "@/lib/image/perspective";
 import { applyFilter } from "@/lib/image/filters";
 import { isPdfFile, pdfFileToImageDataUrls } from "@/lib/image/pdf";
@@ -71,8 +74,9 @@ export function ScanWorkspace({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draftOriginal, setDraftOriginal] = useState<string | null>(null);
   const [draftCorners, setDraftCorners] = useState<Quad | null>(null);
+  const [draftConfidence, setDraftConfidence] = useState(0);
   const [draftFileName, setDraftFileName] = useState<string | undefined>();
-  const [filter, setFilter] = useState<ScanFilter>("original");
+  const [filter, setFilter] = useState<ScanFilter>("enhance");
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [format, setFormat] = useState<ExportFormat>("pdf");
@@ -98,11 +102,30 @@ export function ScanWorkspace({
     }
   }, [mode, draftOriginal, draftCorners, filter, regeneratePreview]);
 
-  const handleCapture = (dataUrl: string, corners: Quad) => {
-    setDraftOriginal(dataUrl);
-    setDraftCorners(corners);
-    setDraftFileName(undefined);
-    setMode("review");
+  const handleCapture = async (
+    dataUrl: string,
+    corners: Quad,
+    confidence: number
+  ) => {
+    // Always re-run detection on the still at full quality (fixes weak live preview)
+    try {
+      const img = await loadImage(dataUrl);
+      const refined = detectCornersFromImage(img, DETECT_CONFIDENCE_MIN);
+      const useRefined =
+        refined.confidence >= confidence ||
+        refined.confidence >= DETECT_CONFIDENCE_MIN;
+      setDraftOriginal(dataUrl);
+      setDraftCorners(useRefined ? refined.quad : corners);
+      setDraftConfidence(useRefined ? refined.confidence : confidence);
+      setDraftFileName(undefined);
+      setMode("review");
+    } catch {
+      setDraftOriginal(dataUrl);
+      setDraftCorners(corners);
+      setDraftConfidence(confidence);
+      setDraftFileName(undefined);
+      setMode("review");
+    }
   };
 
   const handleFileUpload = async (file: File) => {
@@ -117,11 +140,11 @@ export function ScanWorkspace({
         const newPages: ScannedPage[] = [];
         for (const dataUrl of pageUrls) {
           const img = await loadImage(dataUrl);
-          const detected = detectCornersFromImage(img, 0.32);
+          const detected = detectCornersFromImage(img, DETECT_CONFIDENCE_MIN);
           const corners =
-            detected.confidence >= 0.32
+            detected.confidence >= DETECT_CONFIDENCE_MIN
               ? detected.quad
-              : defaultQuad(img.naturalWidth, img.naturalHeight, 0.02);
+              : guidanceQuad(img.naturalWidth, img.naturalHeight);
           const processed = await processPage(dataUrl, corners, filter);
           newPages.push({
             id: nanoid(),
@@ -149,13 +172,14 @@ export function ScanWorkspace({
       });
 
       const img = await loadImage(dataUrl);
-      const detected = detectCornersFromImage(img, 0.32);
+      const detected = detectCornersFromImage(img, DETECT_CONFIDENCE_MIN);
       setDraftOriginal(dataUrl);
       setDraftCorners(
-        detected.confidence >= 0.32
+        detected.confidence >= DETECT_CONFIDENCE_MIN
           ? detected.quad
-          : defaultQuad(img.naturalWidth, img.naturalHeight, 0.06)
+          : guidanceQuad(img.naturalWidth, img.naturalHeight)
       );
+      setDraftConfidence(detected.confidence);
       setDraftFileName(file.name);
       setMode("review");
     } catch (e) {
@@ -183,6 +207,7 @@ export function ScanWorkspace({
   const clearDraft = () => {
     setDraftOriginal(null);
     setDraftCorners(null);
+    setDraftConfidence(0);
     setDraftFileName(undefined);
     setPreview(null);
   };
@@ -298,9 +323,27 @@ export function ScanWorkspace({
       {mode === "review" && draftOriginal && draftCorners && (
         <div className="flex flex-col gap-2 animate-fade-in">
           <div className="flex items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)]">
-              <Crop className="h-3.5 w-3.5 text-blue-400" />
-              {he.scanner.dragCorners}
+            <div
+              className={cn(
+                "flex items-center gap-1.5 text-xs",
+                draftConfidence >= LOCK_CONFIDENCE
+                  ? "text-teal-300"
+                  : "text-[var(--fg-muted)]"
+              )}
+            >
+              <Crop
+                className={cn(
+                  "h-3.5 w-3.5",
+                  draftConfidence >= LOCK_CONFIDENCE
+                    ? "text-teal-300"
+                    : "text-blue-400"
+                )}
+              />
+              {draftConfidence >= LOCK_CONFIDENCE
+                ? he.scanner.locked
+                : draftConfidence >= DETECT_CONFIDENCE_MIN
+                  ? he.scanner.dragCorners
+                  : he.scanner.placeDocument}
             </div>
             <Button
               variant="secondary"
@@ -312,6 +355,7 @@ export function ScanWorkspace({
                   setDraftCorners(
                     fullFrameQuad(img.naturalWidth, img.naturalHeight)
                   );
+                  setDraftConfidence(1);
                 });
               }}
             >
@@ -322,7 +366,12 @@ export function ScanWorkspace({
           <PerspectiveEditor
             imageSrc={draftOriginal}
             corners={draftCorners}
-            onChange={setDraftCorners}
+            confidence={draftConfidence}
+            onChange={(next) => {
+              setDraftCorners(next);
+              // Manual drag — keep editable, drop auto-lock color until re-detect
+              setDraftConfidence((c) => Math.min(c, LOCK_CONFIDENCE - 0.01));
+            }}
             className="[&_img]:max-h-[min(38dvh,280px)]"
           />
 
